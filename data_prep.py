@@ -1,15 +1,9 @@
 
-"""# Python class to wrapper mido.MidiFile objects
+"""
 
-Need to clean up code, make it re-usable for parsing multiple MIDI file performance files.
+Library code for dissertation: v2, 2020-05-13
 
-- time signature gathered from MIDI message within file, meta 'time_signature'
-- typically 96 - 480 ticks per beat, from 'mido.MidiFile.ticks_per_beat' attribute
-- tempo in microseconds per beat, gathered from 'set_tempo' MIDI message in file, converted using mido.tempo2bpm/ bpm2tempo, e.g. 434783 is 138 bpm
-- conversion from ticks to seconds -> e.g. mido.tick2second(34, 480, 434783)
-microseconds per tick = microseconds per quarter note / ticks per quarter note
 
-NOTE: this next cell is the bulk of the work for this notebook, the rest of the cells are mostly testing for it.
 """
 
 
@@ -20,6 +14,7 @@ from mido import MidiFile
 
 # debug
 import datetime
+
 
 class MIDI_File_Wrapper:
   '''
@@ -39,13 +34,14 @@ class MIDI_File_Wrapper:
   # used for setting order of columns in data model df
   __column_in_order = [type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
 
-  def __init__(self, file_name):
+  def __init__(self, file_name, note_map = None):
     self.my_file_name = file_name   # string filename
     self.my_file_midi = None        # mido.MidiFile instance   
     self.my_tempo = None            # stored as mido.Message instance
     self.my_time_sig = None         # stored as mido.Message instance
     self.df_midi_data = None        # DataFrame holding MIDI messages
     self.instruments = None         # list of instruments played in file
+    self.note_map = note_map        # changes event notes on load
 
     # load file and gather data...
     self.parse_file()
@@ -54,7 +50,20 @@ class MIDI_File_Wrapper:
   # For call to str(). Prints readable form 
   def __str__(self): 
     return str('file: {}'.format(self.my_file_midi))
-    
+
+  def reset_content(self):
+    '''
+    Reloads MIDI file and recreates object, EXCEPT, it doesn't 
+    reset the filters set during object creation
+    '''
+    self.my_file_midi = None        # mido.MidiFile instance   
+    self.my_tempo = None            # stored as mido.Message instance
+    self.my_time_sig = None         # stored as mido.Message instance
+    self.df_midi_data = None        # DataFrame holding MIDI messages
+    self.instruments = None         # list of instruments played in file
+
+    # load file and gather data...
+    self.parse_file()
   
   def parse_file(self):
     '''
@@ -110,9 +119,9 @@ class MIDI_File_Wrapper:
 
     # quick debug to show instruments in file
     good, bad = MidiTools.getInstruments2(self.instruments)
-    print('    good instruments: {}'.format(good))
+    print('    good instruments: {}, {}'.format(len(good), good))
     if len(bad) > 0:
-      print('    ____ ERR! INVALID PERCUSSION INSTRUMENTS: {}'.format(bad))
+      print('    ____ ERR! INVALID PERCUSSION INSTRUMENTS: {}, {}'.format(len(bad),bad))
 
 
   def tempo_us(self):
@@ -187,17 +196,140 @@ class MIDI_File_Wrapper:
     #         is ever changed!!!
     df_tmp[self.cum_ms_col] = df_tmp.apply(self.__row_to_seconds, axis=1)
 
+    # apply note mappings, store in new column
+    if self.note_map != None:
+      df_tmp[self.note_col] = df_tmp[self.note_col].map(self.note_map, na_action='ignore')
+
     # grab list of instruments used in file
     drum_stuff = df_tmp.note.unique()
     drum_stuff.sort()
     self.instruments = drum_stuff[pd.notnull(drum_stuff)]  # filters NaN 
 
     # set column order
-    df_tmp = df_tmp[MIDI_File_Wrapper.__column_in_order]
+    df_tmp = df_tmp[self.__column_in_order]
   
     # store final df
     self.df_midi_data = df_tmp
+
+
+
+class MidiTools:
+  '''
+  Convert to/ from MIDI notes to percussion instrumentz
+  As per http://www.midi.org/techspecs/gm1sound.php
+  '''
+
+  note2Instrument = { 35: "Acoustic Bass Drum",
+                36: "Bass Drum 1",
+                37: "Side Stick", 
+                38: "Acoustic Snare",
+                39: "Hand Clap",
+                40: "Electric Snare",
+                41: "Low Floor Tom",
+                42: "Closed Hi Hat",
+                43: "High Floor Tom",
+                44: "Pedal Hi-Hat",
+                45: "Low Tom",
+                46: "Open Hi-Hat",
+                47: "Low-Mid Tom",
+                48: "Hi-Mid Tom",
+                49: "Crash Cymbal 1",
+                50: "High Tom",
+                51: "Ride Cymbal 1",
+                52: "Chinese Cymbal",
+                53: "Ride Bell",
+                54: "Tambourine",
+                55: "Splash Cymbal",
+                56: "Cowbell",
+                57: "Crash Cymbal 2",
+                58: "Vibraslap",
+                59: "Ride Cymbal 2",
+                60: "Hi Bongo",
+                61: "Low Bongo",
+                62: "Mute Hi Conga",
+                63: "Open Hi Conga",
+                64: "Low Conga",
+                65: "High Timbale",
+                66: "Low Timbale",
+                67: "High Agogo",
+                68: "Low Agogo",
+                69: "Cabasa",
+                70: "Maracas",
+                71: "Short Whistle",
+                72: "Long Whistle",
+                73: "Short Guiro",
+                74: "Long Guiro",
+                75: "Claves",
+                76: "Hi Wood Block",
+                77: "Low Wood Block",
+                78: "Mute Cuica",
+                79: "Open Cuica",
+                80: "Mute Triangle",
+                81: "Open Triangle" }
+  
+  def mapInstrument(midi_note):
+    '''
+    Takes MIDI note number, returns None if not found, otherwise 
+    returns a string name of the percussion instrument
+    '''
+    answer = None
+    if midi_note in MidiTools.note2Instrument:
+      answer = MidiTools.note2Instrument[midi_note]
+
+    return answer
+
+  def getInstruments(instrument_list):
+    '''
+    Takes a list of MIDI numeric notes, returns a list
+    of string names of instruments played on this track
+    '''
+    # NOTE: concise notation copied from https://stackoverflow.com/a/38702484
+    return [*map(MidiTools.mapInstrument, instrument_list)]
     
+  def getInstruments2(instrument_list):
+
+    good = {}
+    bad = []
+
+    for next in instrument_list:
+      if next in MidiTools.note2Instrument:
+        good[next] = MidiTools.note2Instrument[next]
+      else:
+        bad.append(next)
+
+    return good, bad
+
+
+
+class GrooveMidiTools:
+  '''
+  tools specifically for working with this dataset
+  https://magenta.tensorflow.org/datasets/
+  '''
+
+  # mappings taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
+  mappings = {22: 42,
+              26: 46,
+              36: 36,
+              37: 38,
+              38: 38,
+              40: 38,
+              42: 42,
+              43: 43,
+              44: 42,
+              45: 47,
+              46: 46,
+              47: 47,
+              48: 50,
+              49: 49,
+              50: 50,
+              51: 51,
+              52: 49,
+              53: 51,
+              55: 49,
+              57: 49,
+              58: 43,
+              59: 51}
 
 
 def test_function_call(name):
