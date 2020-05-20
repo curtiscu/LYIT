@@ -1,10 +1,10 @@
 
 """
 
-Library code for dissertation: v2, 2020-05-13
-
+Library code for dissertation: v2, 2020-05-21
 
 """
+
 
 
 # imports
@@ -42,6 +42,7 @@ class MIDI_File_Wrapper:
     self.df_midi_data = None        # DataFrame holding MIDI messages
     self.instruments = None         # list of instruments played in file
     self.note_map = note_map        # changes event notes on load
+    self.last_note_on = 0           # stores last performed event in file
 
     # load file and gather data...
     self.parse_file()
@@ -61,6 +62,7 @@ class MIDI_File_Wrapper:
     self.my_time_sig = None         # stored as mido.Message instance
     self.df_midi_data = None        # DataFrame holding MIDI messages
     self.instruments = None         # list of instruments played in file
+    self.last_note_on = 0           # stores last performed event in file
 
     # load file and gather data...
     self.parse_file()
@@ -117,6 +119,8 @@ class MIDI_File_Wrapper:
     # load MIDI messages from file into DF
     self.__load_df()
 
+    print('    last note_on: {}'.format(self.last_note_on))
+
     # quick debug to show instruments in file
     good, bad = MidiTools.getInstruments2(self.instruments)
     print('    good instruments: {}, {}'.format(len(good), good))
@@ -151,6 +155,9 @@ class MIDI_File_Wrapper:
   def ts_denom(self):
     ''' Time signature denominator (bottom number) '''
     return self.my_time_sig.denominator
+	
+  def last_hit(self):
+    return self.last_note_on
 
   def calculate_seconds(self, ticks_since_start):
     ''' 
@@ -168,7 +175,7 @@ class MIDI_File_Wrapper:
 
   def __load_df(self):
     df_setup = []
-
+    
     # build df structure from the MIDI file...
     for msg in self.my_file_midi.tracks[0]:
       df_setup.append(
@@ -191,6 +198,9 @@ class MIDI_File_Wrapper:
     # giving time a message appears in the performance/ MIDI file.
     df_tmp[self.cum_ticks_col] = df_tmp[self.time_col].cumsum()
 
+    # remember the tick position of last note_on in file
+    self.last_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].tail(1)[self.cum_ticks_col].values[0]
+
     # add cumulative milliseconds from start of file
     # NOTE: this timing needs to be recalculated if the tempo
     #         is ever changed!!!
@@ -205,12 +215,13 @@ class MIDI_File_Wrapper:
     drum_stuff.sort()
     self.instruments = drum_stuff[pd.notnull(drum_stuff)]  # filters NaN 
 
+    
+
     # set column order
     df_tmp = df_tmp[self.__column_in_order]
   
     # store final df
     self.df_midi_data = df_tmp
-
 
 
 class MidiTools:
