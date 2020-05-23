@@ -11,9 +11,8 @@ Library code for dissertation: v2, 2020-05-21
 import pandas as pd
 import mido 
 from mido import MidiFile
+import math
 
-# debug
-import datetime
 
 
 class MIDI_File_Wrapper:
@@ -224,6 +223,104 @@ class MIDI_File_Wrapper:
     self.df_midi_data = df_tmp
 
 
+
+class MidiTimingTools:
+
+
+  # all parameters required
+  def __init__(self, label, file_ticks_per_beat, us_per_beat, time_sig_numerator, time_sig_denominator, last_note_on):
+    self.label = label                                # pretty label, for handy reference
+    self.file_ticks_per_beat = file_ticks_per_beat    # from MIDI file header
+    self.time_sig_numerator = time_sig_numerator      #   "
+    self.time_sig_denominator = time_sig_denominator  #   "
+    self.us_per_beat = us_per_beat                    # from MIDI file meta message
+    self.last_note_on = last_note_on                  # from MIDI file data
+
+
+  # For call to str(). Prints readable form, tests all 
+  # function calls to build debug string output. 
+  def __str__(self): 
+    return str("LABEL: {} \n  Ticks p/beat: {} \n  BPM: {} \n  time sig: {}/ {} \n  bars in file: {} \n  beats in file: {} \n  ticks in file: {} \n  bins: {} \n  beats: {}"
+    .format(self.label, 
+            self.file_ticks_per_beat,
+            self.bpm(),
+            self.time_sig_numerator,
+            self.time_sig_denominator,
+            self.bars_in_file(),
+            self.beats_in_file(), 
+            self.ticks_in_file(), 
+            self.get_bins(), 
+            self.get_beats()))
+
+  def bpm(self):
+    return (60 * 1000000) / self.us_per_beat
+
+  # ts = time signature
+  def ts_ticks_per_beat(self):
+    return self.file_ticks_per_beat * ( 4/ self.time_sig_denominator )
+
+  def ticks_per_bar(self):
+    return self.ts_ticks_per_beat() * self.time_sig_numerator
+
+  def ticks_per_8(self):
+    return self.file_ticks_per_beat/ 2
+    
+  def ticks_per_16(self):
+    return self.file_ticks_per_beat / 4
+
+  # calculates total bars, round up for whole bars
+  def bars_in_file(self):
+    return math.ceil(self.last_note_on / self.ticks_per_bar()) 
+
+  def ticks_in_file(self):
+    return int(self.bars_in_file() * self.ticks_per_bar()) # total ticks to render (file_range)
+
+  def beats_in_file(self):
+    return self.bars_in_file() * self.time_sig_numerator
+
+  # bucket size for quantizing, set to 1/16 notes
+  def bin_size(self):
+    return int(self.ticks_per_16()) 
+
+  # takes a bar# to start, and how many bars from
+  # there to count. handy if you need to get a start
+  # and end number of ticks for a range of bars.
+  def get_tick_range(self, start_bar, number_of_bars):
+    start_tick = (self.ticks_per_bar() * (start_bar - 1)) - self.bin_size()/2
+    end_tick = start_tick + (self.ticks_per_bar() * number_of_bars)
+    return start_tick, end_tick
+
+  def get_bins(self):   # my_bins
+    my_bin_size = self.bin_size()
+    file_range = self.ticks_in_file()
+    return range(0 - (int(my_bin_size/ 2)), file_range + my_bin_size, my_bin_size)
+
+  def get_beats(self):
+    my_bin_size = self.bin_size()
+    file_range = self.ticks_in_file()
+    return range(0, file_range + my_bin_size, my_bin_size) 
+
+  # NOTE - don't think I actually need this at all
+  def calculated_bins(self, cumulative_ticks_series):
+	  return pd.cut(cumulative_ticks_series, bins=self.get_bins(), right=False)
+
+  # takes series with cumulative ticks since start of file for the 
+  # MIDI note_on events, and returns a series stating the centre
+  # of the beat for each given MIDI event
+  def assigned_beat_location(self, cumulative_ticks_column):
+    #return pd.cut(cumulative_ticks_column.values, bins=self.get_bins(), right=False, labels=self.get_beats())
+    return pd.cut(cumulative_ticks_column, bins=self.get_bins(), right=False, labels=self.get_beats())
+
+
+  def get_offsets(self, cumulative_ticks_column):
+    my_beats = self.assigned_beat_location(cumulative_ticks_column)
+    tmp_dict = dict(enumerate(my_beats.cat.categories))
+    beat_centers = my_beats.cat.codes.map(tmp_dict)
+    offsets = cumulative_ticks_column - beat_centers
+    return my_beats, offsets
+
+
+
 class MidiTools:
   '''
   Convert to/ from MIDI notes to percussion instrumentz
@@ -231,52 +328,52 @@ class MidiTools:
   '''
 
   note2Instrument = { 35: "Acoustic Bass Drum",
-                36: "Bass Drum 1",
-                37: "Side Stick", 
-                38: "Acoustic Snare",
-                39: "Hand Clap",
-                40: "Electric Snare",
-                41: "Low Floor Tom",
-                42: "Closed Hi Hat",
-                43: "High Floor Tom",
-                44: "Pedal Hi-Hat",
-                45: "Low Tom",
-                46: "Open Hi-Hat",
-                47: "Low-Mid Tom",
-                48: "Hi-Mid Tom",
-                49: "Crash Cymbal 1",
-                50: "High Tom",
-                51: "Ride Cymbal 1",
-                52: "Chinese Cymbal",
-                53: "Ride Bell",
-                54: "Tambourine",
-                55: "Splash Cymbal",
-                56: "Cowbell",
-                57: "Crash Cymbal 2",
-                58: "Vibraslap",
-                59: "Ride Cymbal 2",
-                60: "Hi Bongo",
-                61: "Low Bongo",
-                62: "Mute Hi Conga",
-                63: "Open Hi Conga",
-                64: "Low Conga",
-                65: "High Timbale",
-                66: "Low Timbale",
-                67: "High Agogo",
-                68: "Low Agogo",
-                69: "Cabasa",
-                70: "Maracas",
-                71: "Short Whistle",
-                72: "Long Whistle",
-                73: "Short Guiro",
-                74: "Long Guiro",
-                75: "Claves",
-                76: "Hi Wood Block",
-                77: "Low Wood Block",
-                78: "Mute Cuica",
-                79: "Open Cuica",
-                80: "Mute Triangle",
-                81: "Open Triangle" }
+                36: "Bass Drum 1 (36)",
+                37: "Side Stick (37)", 
+                38: "Acoustic Snare (38)",
+                39: "Hand Clap (39)",
+                40: "Electric Snare (40)",
+                41: "Low Floor Tom (41)",
+                42: "Closed Hi Hat (42)",
+                43: "High Floor Tom (43)",
+                44: "Pedal Hi-Hat (44)",
+                45: "Low Tom (45)",
+                46: "Open Hi-Hat (46)",
+                47: "Low-Mid Tom (47)",
+                48: "Hi-Mid Tom (48)",
+                49: "Crash Cymbal 1 (49)",
+                50: "High Tom (50)",
+                51: "Ride Cymbal 1 (51)",
+                52: "Chinese Cymbal (52)",
+                53: "Ride Bell (53)",
+                54: "Tambourine (54)",
+                55: "Splash Cymbal (55)",
+                56: "Cowbell (56)",
+                57: "Crash Cymbal 2 (57)",
+                58: "Vibraslap (58)",
+                59: "Ride Cymbal 2 (59)",
+                60: "Hi Bongo (60)",
+                61: "Low Bongo (61)",
+                62: "Mute Hi Conga (62)",
+                63: "Open Hi Conga (63)",
+                64: "Low Conga (64)",
+                65: "High Timbale (65)",
+                66: "Low Timbale (66)",
+                67: "High Agogo (67)",
+                68: "Low Agogo (68)",
+                69: "Cabasa (69)",
+                70: "Maracas (70)",
+                71: "Short Whistle (71)",
+                72: "Long Whistle (72)",
+                73: "Short Guiro (73)",
+                74: "Long Guiro (74)",
+                75: "Claves (75)",
+                76: "Hi Wood Block (76)",
+                77: "Low Wood Block (77)",
+                78: "Mute Cuica (78)",
+                79: "Open Cuica (79)",
+                80: "Mute Triangle (80)",
+                81: "Open Triangle (81)" }
   
   def mapInstrument(midi_note):
     '''
@@ -294,8 +391,15 @@ class MidiTools:
     Takes a list of MIDI numeric notes, returns a list
     of string names of instruments played on this track
     '''
-    # NOTE: concise notation copied from https://stackoverflow.com/a/38702484
-    return [*map(MidiTools.mapInstrument, instrument_list)]
+	
+    result = []
+	
+    if instrument_list is not None:
+      # NOTE: concise notation copied from https://stackoverflow.com/a/38702484
+      result = [*map(MidiTools.mapInstrument, instrument_list)]
+    
+    return result
+
     
   def getInstruments2(instrument_list):
 
@@ -319,30 +423,30 @@ class GrooveMidiTools:
   '''
 
   # mappings taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
-  mappings = {22: 42,
-              26: 46,
-              36: 36,
-              37: 38,
-              38: 38,
-              40: 38,
-              42: 42,
-              43: 43,
-              44: 42,
-              45: 47,
-              46: 46,
-              47: 47,
-              48: 50,
-              49: 49,
-              50: 50,
-              51: 51,
-              52: 49,
-              53: 51,
-              55: 49,
-              57: 49,
-              58: 43,
-              59: 51}
+  mappings = {22: 42,	# Closed Hi-Hat
+              26: 46, 	# Open Hi-Hat
+              36: 36,	# Bass
+              37: 38,	# Snare 
+              38: 38,	# Snare 
+              40: 38,	# Snare 
+              42: 42,	# Closed Hi-Hat
+              43: 43,	# High Floor Tom
+              44: 42,	# Closed Hi-Hat
+              45: 47,	# Low-Mid Tom
+              46: 46,	# Open Hi-Hat
+              47: 47,	# Low-Mid Tom
+              48: 50,	# High Tom
+              49: 49,	# Crash Cymbal
+              50: 50,	# High Tom
+              51: 51,	# Ride Cymbal
+              52: 49,	# Crash Cymbal
+              53: 51,	# Ride Cymbal
+              55: 49,	# Crash Cymbal
+              57: 49,	# Crash Cymbal
+              58: 43,	# High Floor Tom
+              59: 51}	# Ride Cymbal
 
-
+ 
 def test_function_call(name):
   print('test function called worked! :)  {}'.format(name))
 
