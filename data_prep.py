@@ -13,6 +13,7 @@ import mido
 from mido import MidiFile
 import math
 
+import datetime
 
 
 class MIDI_File_Wrapper:
@@ -42,6 +43,7 @@ class MIDI_File_Wrapper:
     self.instruments = None         # list of instruments played in file
     self.note_map = note_map        # changes event notes on load
     self.last_note_on = 0           # stores last performed event in file
+    self.first_note_on = 0          # stores first performed event in file
 
     # load file and gather data...
     self.parse_file()
@@ -62,6 +64,7 @@ class MIDI_File_Wrapper:
     self.df_midi_data = None        # DataFrame holding MIDI messages
     self.instruments = None         # list of instruments played in file
     self.last_note_on = 0           # stores last performed event in file
+    self.first_note_on = 0          # stores first performed event in file
 
     # load file and gather data...
     self.parse_file()
@@ -118,7 +121,8 @@ class MIDI_File_Wrapper:
     # load MIDI messages from file into DF
     self.__load_df()
 
-    print('    last note_on: {}'.format(self.last_note_on))
+    # more debug
+    print('    note_on span - first tick: {} , last tick: {} '.format(self.first_note_on, self.last_note_on))
 
     # quick debug to show instruments in file
     good, bad = MidiTools.getInstruments2(self.instruments)
@@ -154,7 +158,10 @@ class MIDI_File_Wrapper:
   def ts_denom(self):
     ''' Time signature denominator (bottom number) '''
     return self.my_time_sig.denominator
-	
+
+  def first_hit(self):
+    return self.first_note_on
+
   def last_hit(self):
     return self.last_note_on
 
@@ -197,6 +204,9 @@ class MIDI_File_Wrapper:
     # giving time a message appears in the performance/ MIDI file.
     df_tmp[self.cum_ticks_col] = df_tmp[self.time_col].cumsum()
 
+    # remember the tick position of first note_on in file
+    self.first_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].head(1)[self.cum_ticks_col].values[0]
+    
     # remember the tick position of last note_on in file
     self.last_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].tail(1)[self.cum_ticks_col].values[0]
 
@@ -278,9 +288,15 @@ class MidiTimingTools:
   def beats_in_file(self):
     return self.bars_in_file() * self.time_sig_numerator
 
-  # bucket size for quantizing, set to 1/16 notes
+  # bucket size for quantizing, hardwired here to 1/16 notes
+  # perhaps this might be best being configurable?
   def bin_size(self):
     return int(self.ticks_per_16()) 
+
+  # how many bins in a bar, e.g. if quantizing by 16th
+  # notes, this'll return 16, if by 8th notes, return 8.
+  def bins_per_bar(self):
+    return self.ticks_per_bar()/ self.bin_size()
 
   # takes a bar# to start, and how many bars from
   # there to count. handy if you need to get a start
@@ -316,9 +332,14 @@ class MidiTimingTools:
     my_beats = self.assigned_beat_location(cumulative_ticks_column)
     tmp_dict = dict(enumerate(my_beats.cat.categories))
     beat_centers = my_beats.cat.codes.map(tmp_dict)
-    offsets = cumulative_ticks_column - beat_centers
-    return my_beats, offsets
 
+    offsets = cumulative_ticks_column - beat_centers
+
+    # this will return 'beat_centers' as Int
+    #return beat_centers, offsets  
+
+    # this will return 'my_beats' as Categorical
+    return my_beats, offsets
 
 
 class MidiTools:
@@ -416,45 +437,129 @@ class MidiTools:
 
 
 
-class GrooveMidiTools:
-  '''
-  tools specifically for working with this dataset
-  https://magenta.tensorflow.org/datasets/
-  '''
 
-  # mappings taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
-  mappings = {22: 42,	# Closed Hi-Hat
-              26: 46, 	# Open Hi-Hat
-              36: 36,	# Bass
-              37: 38,	# Snare 
-              38: 38,	# Snare 
-              40: 38,	# Snare 
-              42: 42,	# Closed Hi-Hat
-              43: 43,	# High Floor Tom
-              44: 42,	# Closed Hi-Hat
-              45: 47,	# Low-Mid Tom
-              46: 46,	# Open Hi-Hat
-              47: 47,	# Low-Mid Tom
-              48: 50,	# High Tom
-              49: 49,	# Crash Cymbal
-              50: 50,	# High Tom
-              51: 51,	# Ride Cymbal
-              52: 49,	# Crash Cymbal
-              53: 51,	# Ride Cymbal
-              55: 49,	# Crash Cymbal
-              57: 49,	# Crash Cymbal
-              58: 43,	# High Floor Tom
-              59: 51}	# Ride Cymbal
+# mappings taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
+simplified_mapping = {22: 42,	# Closed Hi-Hat
+                      26: 46, # Open Hi-Hat
+                      36: 36,	# Bass
+                      37: 38,	# Snare 
+                      38: 38,	# Snare 
+                      40: 38,	# Snare 
+                      42: 42,	# Closed Hi-Hat
+                      43: 43,	# High Floor Tom
+                      44: 42,	# Closed Hi-Hat
+                      45: 47,	# Low-Mid Tom
+                      46: 46,	# Open Hi-Hat
+                      47: 47,	# Low-Mid Tom
+                      48: 50,	# High Tom
+                      49: 49,	# Crash Cymbal
+                      50: 50,	# High Tom
+                      51: 51,	# Ride Cymbal
+                      52: 49,	# Crash Cymbal
+                      53: 51,	# Ride Cymbal
+                      55: 49,	# Crash Cymbal
+                      57: 49,	# Crash Cymbal
+                      58: 43,	# High Floor Tom
+                      59: 51}	# Ride Cymbal
 
  
-def test_function_call(name):
-  print('test function called worked! :)  {}'.format(name))
+def __now():
+  return datetime.datetime.now()
+  
+mt = MidiTools()
+
+def load_file(file_name):
+  '''
+    Convenience function to collect steps for
+    loading and preprocessing a MIDI file.
+  '''
+  
+  global gmt
+  midi_file = MIDI_File_Wrapper(file_name, simplified_mapping)
+  
+  # some shortcuts
+  f = midi_file
+  f_df = f.df_midi_data
+  
+  #### SETUP TIMING BINS
+
+  # MTT object for parsing file and
+  # calculating crticial time metrics
+  mtt = MidiTimingTools(file_name, 
+                        f.ticks(),  
+                        f.tempo_us(), 
+                        f.ts_num(), 
+                        f.ts_denom(), 
+                        f.last_hit())
+
+  # values needed these for making MultiIndex later
+  quantize_level = mtt.bins_per_bar()
+  bars_in_file = mtt.bars_in_file()
+  tp_beat = mtt.ts_ticks_per_beat()
+  tp_bin = mtt.bin_size()
+
+  # DEBUG
+  print('    bar info - bars in file: {}, bar quantize level: {}'.format(bars_in_file, quantize_level))
+  print('    tick info - ticks per time sig beat: {}, ticks per quantize bin: {}'.format(tp_beat, tp_bin))
+
+  # capture timing data from MidiTimingTools in df...
+  beats_col, offsets_col = mtt.get_offsets(f_df[f.cum_ticks_col])
+  f_df['beat_offset'] = offsets_col
+  f_df['beat_center'] = beats_col
+  f_df['file_beat_number'] = pd.Categorical(f_df.beat_center).codes
+
+
+  # make a copy, for now..
+  tmp_df = f_df.copy(deep=True)
+
+
+  #### SETUP BAR & BEAT COLS
+
+  tmp_df['bar_number'] = (tmp_df.file_beat_number // quantize_level) + 1
+
+  # add column for beat within the bar index
+  tmp_df['bar_beat_number'] = (tmp_df.file_beat_number % 16) + 1
+
+  # sort out types
+  tmp_df['bar_number'] = tmp_df['bar_number'].astype('int')
+  tmp_df['bar_beat_number'] = tmp_df['bar_beat_number'].astype('int')
+
+  # filter to only note_on events
+  tmp_df = tmp_df[tmp_df['msg_type'] == 'note_on'].copy() 
+
+
+  tmp_df.drop(columns=['msg_type', 'delta_ticks', 'total_seconds',  'raw_data', 'file_beat_number' ], inplace=True)
+
+
+  #### SET REQUIRED INDEXES
+
+  tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, append=True, drop=False)
+  
+  ####  RETURN RESULTS
+  
+  # can choose to return, MIDI_File_Wrapper, MidiTimingTools
+  # or just the DataFrame (i.e. end result) of preprocessing..
+  
+  # set MIDI_File_Wrapper data in case I want to 
+  # return this later instead...
+  f.df_midi_data = tmp_df
+  
+  return f.df_midi_data
+
+
+
+
+
+
+
+  
+def test_function_call(some_param):
+  print('Test function called worked! when: {},  param:{}'.format(__now(), some_param))
 
 
 # debug log that module loaded
-print('LOADING - data_prep.py module name is: {}'.format(__name__))
-
+print('LOADING custom module, when: {}, module name: {}'.format(__now(), __name__))
 
 if __name__ == '__main__':
-    print('yay, curtis module ran :) ')
+  print('yay, curtis module ran :) ')
 	
