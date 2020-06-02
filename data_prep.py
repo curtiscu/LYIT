@@ -183,13 +183,17 @@ class MIDI_File_Wrapper:
     # DEBUG check for track count ...
     print('    track count: {}, tracks: {}'.format(len(_f.tracks), _f.tracks))
     
-    # could be a problem if not MIDI type 0 (single track)
+    # shouldn't be a problem if MIDI type 0 (single track)
     # maybe a problem if type 1 (multiple synchronous tracks)
     # most likely a problem if type 2 (multiple asynchronous tracks)
     print('    MIDI file type: {}'.format(_f.type))
-    if self.my_file_midi.type != 0:
-      print('   THIS COULD BE A PROBLEM! file of type: {}'.format(_f.type))
-      #raise ValueError("ERROR! Can only currently handle MIDI file type 0, this file type: {}, tracks: {}, midi_file: {}".format(_f.type, _f.tracks, _f))
+    
+    if _f.type == 0:
+      pass # all good
+    elif _f.type == 1: 
+      print('    THIS MAY BE A PROBLEM! file of type: {}'.format(_f.type))
+    else:
+      raise ValueError("ERROR! Unknown MIDI file type, unable to proceed with file type: {}, tracks: {}, midi_file: {}".format(_f.type, _f.tracks, _f))
 
 
     # Next loop will ..
@@ -590,15 +594,12 @@ def load_file(file_name):
   # return this later instead...
   f.df_midi_data = tmp_df
   
-  return f.df_midi_data
+  return f.df_midi_data, f, mtt
 
 
 
 
 
-
-
-  
 def test_function_call(some_param):
   print('Test function called worked! when: {},  param:{}'.format(__now(), some_param))
 
