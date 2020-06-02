@@ -23,6 +23,7 @@ class MIDI_File_Wrapper:
 
   # column headers for internal data frame 
   # containing MIDI messages loaded from file
+  track_msg_number_col = 'track_msg_num'
   vel_col = 'velocity'
   note_col = 'note'
   type_col = 'msg_type'
@@ -32,7 +33,7 @@ class MIDI_File_Wrapper:
   cum_ms_col = 'total_seconds'
 
   # used for setting order of columns in data model df
-  __column_in_order = [type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
+  __column_in_order = [track_msg_number_col, type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
 
   def __init__(self, file_name, note_map = None):
     self.my_file_name = file_name   # string filename
@@ -71,10 +72,9 @@ class MIDI_File_Wrapper:
   
   def __parse_file(self):
     '''
-    Careful about handling file type here ..
-      - could be a problem if not MIDI type 0 (single track)
-      - maybe a problem if type 1 (multiple synchronous tracks)
-      - most likely a problem if type 2 (multiple asynchronous tracks)
+      Loads some required metadata from the file then calls
+      __load_messages() to handle parsing individual messages
+      into primary dataframe
     '''
 
     print('FILE name: {}'.format(self.my_file_name))
@@ -83,16 +83,6 @@ class MIDI_File_Wrapper:
     midi_file = MidiFile(self.my_file_name)
     self.my_file_midi = midi_file 
     print('    loaded file: {}'.format(midi_file))
-    
-    # DEBUG another check for track count ...
-    print('    track count: {}, tracks: {}'.format(len(midi_file.tracks), midi_file.tracks))
-    
-    # could be a problem if not MIDI type 0 (single track)
-    # maybe a problem if type 1 (multiple synchronous tracks)
-    # most likely a problem if type 2 (multiple asynchronous tracks)
-    print('    MIDI file type: {}'.format(midi_file.type))
-    if midi_file.type != 0:
-      raise ValueError("ERROR! Can only currently handle MIDI file type 0, this file type: {}, tracks: {}, midi_file: {}".format(midi_file.type, midi_file.tracks, midi_file))
 
     # parse messages for time_sig and tempo info, searches
     # across all tracks, rather than per track ..
@@ -120,7 +110,7 @@ class MIDI_File_Wrapper:
       raise ValueError('ERROR! no tempo found: {}'.format(midi_file))
 
     # load MIDI messages from file into DF
-    self.__load_df()
+    self.__load_messages()
 
     # more debug
     print('    note_on span - first tick: {} , last tick: {} '.format(self.first_note_on, self.last_note_on))
@@ -175,42 +165,88 @@ class MIDI_File_Wrapper:
     return mido.tick2second(ticks_since_start, self.ticks(), self.tempo_us())
 
 
-
   def __row_to_seconds(self, row):
     return self.calculate_seconds(row[self.cum_ticks_col])
 
 
-  def __load_df(self):
-    df_setup = []
+  def __load_messages(self):  
+    '''
+      Careful about handling file type here ..
+      - could be a problem if not MIDI type 0 (single track)
+      - maybe a problem if type 1 (multiple synchronous tracks)
+      - most likely a problem if type 2 (multiple asynchronous tracks)
+    '''
+
+    # shorthand
+    _f = self.my_file_midi
     
-    # IMPORTANT NOTE.. 
-    # 2 ways can extract messages, from track object
-    # or from file object. Extracting from tracks gives
-    # time in ticks, the file object converts it to secs
+    # DEBUG check for track count ...
+    print('    track count: {}, tracks: {}'.format(len(_f.tracks), _f.tracks))
     
-    # build df structure from the MIDI tracks.
-    for msg in self.my_file_midi.tracks[0]:
+    # could be a problem if not MIDI type 0 (single track)
+    # maybe a problem if type 1 (multiple synchronous tracks)
+    # most likely a problem if type 2 (multiple asynchronous tracks)
+    print('    MIDI file type: {}'.format(_f.type))
+    if self.my_file_midi.type != 0:
+      print('   THIS COULD BE A PROBLEM! file of type: {}'.format(_f.type))
+      #raise ValueError("ERROR! Can only currently handle MIDI file type 0, this file type: {}, tracks: {}, midi_file: {}".format(_f.type, _f.tracks, _f))
+
+
+    # Next loop will ..
+    # - make dfs from all tracks
+    # - tweak data types
+    # - create ticks cumsum col
+
+    track_dfs = []
+
+    for track_number, next_track in enumerate(_f.tracks):
+      print('    > processing track: {}'.format(next_track))
       
-      df_setup.append(
+      df_setup = [] # capture data for next df
+        
+      # IMPORTANT NOTE.. 
+      # 2 ways can extract messages, from track object
+      # or from file object. Extracting from tracks gives
+      # time in ticks, the file object converts it to secs
+      
+      # build df structure from the MIDI tracks.
+      for msg_number, msg in enumerate(next_track):
+        
+        track_msg_number = '{}:{}'.format(track_number, msg_number)
+        #print('      > processing msg: {}'.format(track_msg_number))
+        
+        df_setup.append(
           {
-              self.type_col: msg.dict()['type'],
-              self.time_col: msg.dict()['time'],
-              self.note_col: None if 'note' not in msg.dict() else msg.dict()['note'],
-              self.vel_col: None if 'velocity' not in msg.dict() else msg.dict()['velocity'],
-              self.raw_col:  str(msg.dict()) # saves whole message in case needed later
+            self.track_msg_number_col: track_msg_number, # msg position in track
+            self.type_col: msg.dict()['type'],
+            self.time_col: msg.dict()['time'],
+            self.note_col: None if 'note' not in msg.dict() else msg.dict()['note'],
+            self.vel_col: None if 'velocity' not in msg.dict() else msg.dict()['velocity'],
+            self.raw_col:  str(msg.dict()) # saves whole message in case needed later
           } 
-      )
+        )
 
-    df_tmp = pd.DataFrame(df_setup)
+      next_df = pd.DataFrame(df_setup) # create the df
 
-    # tweak data types, change from 'object' columns to 'string'  ...
-    df_tmp[self.type_col] = df_tmp[self.type_col].astype('string')
-    df_tmp[self.raw_col] = df_tmp[self.raw_col].astype('string')
+      # tweak data types, change from 'object' columns to 'string'  ...
+      next_df[self.type_col] =next_df[self.type_col].astype('string')
+      next_df[self.raw_col] =next_df[self.raw_col].astype('string')
+      
+      # add cumulative tick count column, used to store a running total
+      # giving time a message appears in the performance/ MIDI file.
+      next_df[self.cum_ticks_col] =next_df[self.time_col].cumsum()
+
+      track_dfs.append(next_df)  # add it to the df list
+        
+    # concat all dfs (required for multi-track MIDI file)
+    df_tmp = pd.concat(track_dfs)
+
+    # sort according to cumsum col, reindex/ new index
+    df_tmp.sort_values([self.cum_ticks_col], ignore_index=True, inplace=True)
+
+    # NOTE: at this point, all msgs in file are loaded and aggregated into 
+    #       single df, and ordered according to MIDI tick position
     
-    # add cumulative tick count column, used to store a running total
-    # giving time a message appears in the performance/ MIDI file.
-    df_tmp[self.cum_ticks_col] = df_tmp[self.time_col].cumsum()
-
     # remember the tick position of first note_on in file
     self.first_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].head(1)[self.cum_ticks_col].values[0]
     
@@ -230,9 +266,7 @@ class MIDI_File_Wrapper:
     drum_stuff = df_tmp.note.unique()
     drum_stuff.sort()
     self.instruments = drum_stuff[pd.notnull(drum_stuff)]  # filters NaN 
-
-    
-
+ 
     # set column order
     df_tmp = df_tmp[self.__column_in_order]
   
@@ -488,6 +522,7 @@ def load_file(file_name):
   f = midi_file
   f_df = f.df_midi_data
   
+  
   #### SETUP TIMING BINS
 
   # MTT object for parsing file and
@@ -535,7 +570,11 @@ def load_file(file_name):
   tmp_df = tmp_df[tmp_df['msg_type'] == 'note_on'].copy() 
 
 
-  tmp_df.drop(columns=['msg_type', 'delta_ticks', 'total_seconds',  'raw_data', 'file_beat_number' ], inplace=True)
+  tmp_df.drop(columns=[ 'msg_type', 
+                        'delta_ticks', 
+                        'total_seconds',  
+                        'raw_data', 
+                        'file_beat_number' ], inplace=True)
 
 
   #### SET REQUIRED INDEXES
