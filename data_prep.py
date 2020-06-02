@@ -1,7 +1,9 @@
 
 """
 
-Library code for dissertation: v2, 2020-05-21
+Prep library code for dissertation: v3, 2020-06-02
+Loads MIDI files using MIDO library and does
+a bunch of preprocessing of the data
 
 """
 
@@ -173,7 +175,7 @@ class MIDI_File_Wrapper:
     '''
       Careful about handling file type here ..
       - could be a problem if not MIDI type 0 (single track)
-      - maybe a problem if type 1 (multiple synchronous tracks)
+      - limited testing, maybe a problem if type 1 (multiple synchronous tracks)
       - most likely a problem if type 2 (multiple asynchronous tracks)
     '''
 
@@ -191,7 +193,7 @@ class MIDI_File_Wrapper:
     if _f.type == 0:
       pass # all good
     elif _f.type == 1: 
-      print('    THIS MAY BE A PROBLEM! file of type: {}'.format(_f.type))
+      print('    CAREFUL - THIS MAY BE A PROBLEM! file of type: {}'.format(_f.type))
     else:
       raise ValueError("ERROR! Unknown MIDI file type, unable to proceed with file type: {}, tracks: {}, midi_file: {}".format(_f.type, _f.tracks, _f))
 
@@ -519,7 +521,6 @@ def load_file(file_name):
     loading and preprocessing a MIDI file.
   '''
   
-  global gmt
   midi_file = MIDI_File_Wrapper(file_name, simplified_mapping)
   
   # some shortcuts
@@ -558,22 +559,24 @@ def load_file(file_name):
   # make a copy, for now..
   tmp_df = f_df.copy(deep=True)
 
-
-  #### SETUP BAR & BEAT COLS
-
-  tmp_df['bar_number'] = (tmp_df.file_beat_number // quantize_level) + 1
-
-  # add column for beat within the bar index
-  tmp_df['bar_beat_number'] = (tmp_df.file_beat_number % 16) + 1
-
-  # sort out types
-  tmp_df['bar_number'] = tmp_df['bar_number'].astype('int')
-  tmp_df['bar_beat_number'] = tmp_df['bar_beat_number'].astype('int')
-
   # filter to only note_on events
   tmp_df = tmp_df[tmp_df['msg_type'] == 'note_on'].copy() 
 
 
+  # sort out bar column
+  tmp_df['bar_number'] = (tmp_df.file_beat_number // quantize_level) + 1
+  # add column for beat within the bar index
+  tmp_df['bar_beat_number'] = (tmp_df.file_beat_number % 16) + 1
+
+  # sort out types
+  tmp_df['bar_number'] = tmp_df['bar_number'].astype(int)
+  tmp_df['bar_beat_number'] = tmp_df['bar_beat_number'].astype(int)
+  tmp_df['velocity'] = tmp_df['velocity'].astype(int)
+  tmp_df['note'] = tmp_df['note'].astype(int)
+  tmp_df['track_msg_num'] = tmp_df['track_msg_num'].astype('string')
+
+
+  # drop other columns we don't need
   tmp_df.drop(columns=[ 'msg_type', 
                         'delta_ticks', 
                         'total_seconds',  
