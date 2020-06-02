@@ -46,7 +46,7 @@ class MIDI_File_Wrapper:
     self.first_note_on = 0          # stores first performed event in file
 
     # load file and gather data...
-    self.parse_file()
+    self.__parse_file()
 
 
   # For call to str(). Prints readable form 
@@ -67,49 +67,50 @@ class MIDI_File_Wrapper:
     self.first_note_on = 0          # stores first performed event in file
 
     # load file and gather data...
-    self.parse_file()
+    self.__parse_file()
   
-  def parse_file(self):
+  def __parse_file(self):
     '''
-    File must be: MIDI type 0 only;  one and only one tempo and time_sig meta messages in file. 
+    Careful about handling file type here ..
+      - could be a problem if not MIDI type 0 (single track)
+      - maybe a problem if type 1 (multiple synchronous tracks)
+      - most likely a problem if type 2 (multiple asynchronous tracks)
     '''
 
-    print('FILE: {}'.format(self.my_file_name))
+    print('FILE name: {}'.format(self.my_file_name))
 
     # load file
     midi_file = MidiFile(self.my_file_name)
     self.my_file_midi = midi_file 
-
-    # make sure it's MIDI type 0 (single track) ...
+    print('    loaded file: {}'.format(midi_file))
+    
+    # DEBUG another check for track count ...
+    print('    track count: {}, tracks: {}'.format(len(midi_file.tracks), midi_file.tracks))
+    
+    # could be a problem if not MIDI type 0 (single track)
+    # maybe a problem if type 1 (multiple synchronous tracks)
+    # most likely a problem if type 2 (multiple asynchronous tracks)
+    print('    MIDI file type: {}'.format(midi_file.type))
     if midi_file.type != 0:
-      raise ValueError('ERROR! Can only process type 0 files, this file is type: {}'.format(midi_file.type))
+      raise ValueError("ERROR! Can only currently handle MIDI file type 0, this file type: {}, tracks: {}, midi_file: {}".format(midi_file.type, midi_file.tracks, midi_file))
 
-    print('    tracks: {}'.format(midi_file.tracks))
-
-    # another check for single track ...
-    if len(midi_file.tracks) != 1:
-      raise ValueError('ERROR! Need a single MIDI track, this file has: {}, {}'.format(midi_file.tracks, midi_file))
-
-    # parse messages for time_sig and tempo info ..
+    # parse messages for time_sig and tempo info, searches
+    # across all tracks, rather than per track ..
     for msg in midi_file:
-
       if msg.type == 'time_signature':
         print('    time sig: {}'.format(msg))
 
         # make sure no time sig changes
         if self.my_time_sig != None:
           raise ValueError('ERROR! more than one time sig: {}, {}'.format(self.my_time_sig, msg))
-      
         self.my_time_sig = msg
 
       elif msg.type == 'set_tempo':
-
         print('    tempo: {}'.format(msg))
 
         # make sure no tempo changes
         if self.my_tempo != None:
           raise ValueError('ERROR! more than one tempo: {}, {}'.format(self.my_tempo, msg))
-        
         self.my_tempo = msg
 
     # now check we actually have tempo and time_sig set, or complain...
@@ -182,8 +183,14 @@ class MIDI_File_Wrapper:
   def __load_df(self):
     df_setup = []
     
-    # build df structure from the MIDI file...
+    # IMPORTANT NOTE.. 
+    # 2 ways can extract messages, from track object
+    # or from file object. Extracting from tracks gives
+    # time in ticks, the file object converts it to secs
+    
+    # build df structure from the MIDI tracks.
     for msg in self.my_file_midi.tracks[0]:
+      
       df_setup.append(
           {
               self.type_col: msg.dict()['type'],
