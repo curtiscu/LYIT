@@ -586,20 +586,22 @@ def load_file(file_name):
 
   #### SET REQUIRED INDEXES
 
-  tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, append=True, drop=False)
+  #tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, append=True, drop=False)
+  tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, drop=False)
+  
+  #### CAPTURE CHANGES
+  
+  # replace MIDI_File_Wrapper dataframe with new one...
+  f.df_midi_data = tmp_df
+ 
   
   ####  RETURN RESULTS
   
-  # can choose to return, MIDI_File_Wrapper, MidiTimingTools
-  # or just the DataFrame (i.e. end result) of preprocessing..
-  
-  # set MIDI_File_Wrapper data in case I want to 
-  # return this later instead...
-  f.df_midi_data = tmp_df
-  
+  # return all of the finished DataFrame, MIDI_File_Wrapper, 
+  # and the MidiTimingTools, the caller can decide which of 
+  # those to keep
   return f.df_midi_data, f, mtt
-
-
+  
 
 
 
