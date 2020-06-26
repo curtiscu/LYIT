@@ -80,8 +80,8 @@ def error_buckets(midi_file_data):
 
 
 def gather_stats(midi_file_data):
-  '''Returns dictionary, keys are instruments, values
-  are stats dataframes with averages, standard deviations, IQR
+  '''Returns MultiIndex structure filled with stats/ features
+  of averages, standard deviations, IQR range, hit/ freq count,
   min/ max, etc..
   
   NOTE..
@@ -125,9 +125,20 @@ def gather_stats(midi_file_data):
   fill_cols = pd.DataFrame(columns=[x for x in range(1, 17)])
   full_col_list = list(set().union(stats_2.columns, fill_cols.columns))
   stats_2 = stats_2.reindex(columns=full_col_list, fill_value=0)
+
+  # set index to be 'feature', and 'note'
+  stats_2.rename_axis(index=['feature', 'note'], inplace=True)
+  # flip index around
+  stats_2 = stats_2.reorder_levels(order=[1, 0])
+  # sort whole structure by tweaked index
+  stats_2.sort_index(inplace=True)
   
-  ## produce statistics table for each insrument
+  # return single structure with MultiIndex
+  return stats_2
   
+  '''
+  # the following can be used to produce statistics table for each instrument  
+    
   # gather list of instruments
   keys=stats_2.index.unique(level=1)._data
 
@@ -135,11 +146,12 @@ def gather_stats(midi_file_data):
   
   for i in keys:
     print('>> Gathering stats for instrument: {}'.format(instrument_map[i]))
-    next_stats = stats_2[stats_2.index.isin([i], level=1)].droplevel('note')
+    #next_stats = stats_2[stats_2.index.isin([i], level=1)].droplevel('note')
+    next_stats = stats_2[stats_2.index.isin([i], level=1)]
     results[i] = next_stats
   
-  return results # TODO return structure containing stats for each instrument
-
+  return results # return structure containing stats for each instrument
+  '''
   
 
 def iqr(x):
