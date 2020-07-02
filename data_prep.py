@@ -37,7 +37,7 @@ class MIDI_File_Wrapper:
   # used for setting order of columns in data model df
   __column_in_order = [track_msg_number_col, type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
 
-  def __init__(self, file_name, note_map = None):
+  def __init__(self, file_name, note_map = None, note_filter = None):
     self.my_file_name = file_name   # string filename
     self.my_file_midi = None        # mido.MidiFile instance   
     self.my_tempo = None            # stored as mido.Message instance
@@ -45,6 +45,7 @@ class MIDI_File_Wrapper:
     self.df_midi_data = None        # DataFrame holding MIDI messages
     self.instruments = None         # list of instruments played in file
     self.note_map = note_map        # changes event notes on load
+    self.note_filter = note_filter  # filters instruments/ note-on on file loading
     self.last_note_on = 0           # stores last performed event in file
     self.first_note_on = 0          # stores first performed event in file
 
@@ -264,20 +265,39 @@ class MIDI_File_Wrapper:
     #         is ever changed!!!
     df_tmp[self.cum_ms_col] = df_tmp.apply(self.__row_to_seconds, axis=1)
 
+    # NOTE: next section allows for filtering of instruments
+    # from loaded MIDI file
+    
+    # show list of raw/ unfiltered instruments loaded from file...
+    print('    __notes pre-filter: {}'.format(self.clean_list(df_tmp.note.unique())))
+    
+    # apply pre-filter to remove select instruments
+    if self.note_filter != None:
+      print('    __applying filter: {}'.format(self.note_filter))
+      df_tmp = df_tmp[~df_tmp[self.note_col].isin(self.note_filter)]
+      
+    # show list instruments after filtering
+    print('    __notes post filter: {}'.format(self.clean_list(df_tmp.note.unique())))
+      
     # apply note mappings, store in new column
     if self.note_map != None:
       df_tmp[self.note_col] = df_tmp[self.note_col].map(self.note_map, na_action='ignore')
 
-    # grab list of instruments used in file
-    drum_stuff = df_tmp.note.unique()
-    drum_stuff.sort()
-    self.instruments = drum_stuff[pd.notnull(drum_stuff)]  # filters NaN 
+    # grab list of filtered/ mapped instruments
+    self.instruments = self.clean_list(df_tmp.note.unique())
  
     # set column order
     df_tmp = df_tmp[self.__column_in_order]
   
     # store final df
     self.df_midi_data = df_tmp
+    
+  # utility function to tidy up instrument list
+  # takes list/ array, sorts it, removes NaN, returns it
+  def clean_list(self, some_list):
+    some_list.sort()
+    return some_list[pd.notnull(some_list)]  # filters NaN 
+
 
 
 
@@ -508,20 +528,23 @@ simplified_mapping = {22: 42,	# Closed Hi-Hat
                       57: 49,	# Crash Cymbal
                       58: 43,	# High Floor Tom
                       59: 51}	# Ride Cymbal
-
  
 def __now():
   return datetime.datetime.now()
   
 mt = MidiTools()
 
-def load_file(file_name):
+def load_file(file_name, note_filter=[44]):
   '''
     Convenience function to collect steps for
     loading and preprocessing a MIDI file.
+    
+    file_name = String name of file to load
+    note_filter = list/ array of instrument numbers to ignore/ filter
+            default filter is '44', removes hi hat with foot.
   '''
   
-  midi_file = MIDI_File_Wrapper(file_name, simplified_mapping)
+  midi_file = MIDI_File_Wrapper(file_name, simplified_mapping, note_filter)
   
   # some shortcuts
   f = midi_file
@@ -606,12 +629,12 @@ def load_file(file_name):
 
 
 def test_function_call(some_param):
-  print('Test function called worked! when: {},  param:{}'.format(__now(), some_param))
+  print('Test function in data_prep.py called and worked! when: {},  param:{}'.format(__now(), some_param))
 
 
 # debug log that module loaded
-print('LOADING custom module, when: {}, module name: {}'.format(__now(), __name__))
+print('>> LOADING custom module, when: {}, module name: {}'.format(__now(), __name__))
 
 if __name__ == '__main__':
-  print('yay, curtis module ran :) ')
+  print('>> confirming data_prep.py module ran :) ')
 	
