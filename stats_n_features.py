@@ -53,7 +53,7 @@ def frequency_table(midi_file_data):
 #       for now. need to decide what to do with
 #       the information if this returns dataframe 
 #       with df.size > 0 
-def error_buckets(midi_file_data):
+def get_error_buckets(midi_file_data):
   '''Detect multiple hits in quantize bucket.
   
   Detect problem beats in bars that have more hits
@@ -203,8 +203,4 @@ print('>> LOADING custom module, when: {}, module name: {}'.format(__now(), __na
 
 if __name__ == '__main__':
   print('>> confirming {} module ran :) '.format(__name__))
-
-
-
-
 
