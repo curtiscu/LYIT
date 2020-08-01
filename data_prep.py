@@ -14,9 +14,9 @@ import pandas as pd
 import mido 
 from mido import MidiFile
 import math
-
 import datetime
-
+from collections import namedtuple
+import stats_n_features as sf
 
 class MIDI_File_Wrapper:
   '''
@@ -626,10 +626,140 @@ def load_file(file_name, note_filter=[44]):
   return f.df_midi_data, f, mtt
   
 
+'''
+  Collection object to hold in a single place all information
+  related to a performance loaded from a MIDI file.
 
+  drummer_id = String
+  file_df = complete DataFrame of data, unfiltered
+  file_wrapper = MidiFileWrapper instance
+  tools = MidiTimingTools instance
+  stats_df = DataFrame fleshed out with additional features/ metrics
+  tight_df = highly filtered to just the final kick, snare, hihats instruments
+'''
+PerformanceData = namedtuple('PerformanceData' , 'drummer_id file_df file_wrapper tools stats_df tight_df')
+
+meta_file = '/content/drive/My Drive/LYIT/Dissertation/data/eval_data.csv'
+
+def load_meta_file():
+  '''
+    Loads the files specified in..
+      '/content/drive/My Drive/LYIT/Dissertation/data/eval_data.csv'
+  '''
+
+  eval_df = pd.read_csv(meta_file, dtype = {"drummer": "string", 
+                                            "session" : "string", 
+                                            "id": "string", 
+                                            "style": "string", 
+                                            "time_signature" : "string",
+                                            "midi_filename" : "string",
+                                            "long_midi_filename" : "string",
+                                            "split" : "string"})
+  return eval_df
+
+
+def load_all_data():
+  '''
+    Convenience function. Bulk loads data and prepares it
+    for use/ access. 
+    
+      
+    Filters to tunes in style..
+      ['funk/groove1', 'soul/groove3', 'soul/groove4', 'hiphop/groove6', 'rock/groove8']
+    
+    Note this code brainstormed in this notebook..
+      https://github.com/curtiscu/LYIT/blob/master/BulkLoadingAndFiltering_1.ipynb
+  '''
+
+  eval_df = load_meta_file()
+  
+  # NOTE: these are labels for each 'style' (1-10) the drummers
+  # were asked to play, after reviewing, the following were deemed
+  # most suitable/ usable as data for the project
+  song_styles = ['funk/groove1', 'soul/groove3', 'soul/groove4', 'hiphop/groove6', 'rock/groove8']
+  eval_df = eval_df[eval_df['style'].isin(song_styles)]
+  
+  all_drummer_data = {}
+
+  # iterate over each file meta data
+  for index, row in eval_df.iterrows():
+
+    # access data using column names
+    next_drummer = row['drummer']
+    long_name = row['long_midi_filename']
+    short_name = row['midi_filename']
+
+    # loads DataFrame (file_df), MIDI_File_Wrapper (f), and
+    # the associated MidiTimingTools (mtt) objects..
+    file_df, file_wrapper, mtt = load_file(long_name)
+
+    print('    > checking for errs: {}'.format(short_name))
+
+    #### review data, see if errors to be removed...
+
+    err_buckets = sf.get_error_buckets(file_df) # parse for problem beats
+    if err_buckets.size == 0:
+      print('    ...no errors to see here')
+    else: # handle buckets > 1 hit for instrument
+      #display(err_buckets)
+      print('    __ file_df before: {}'.format(file_df.shape))
+      print('    __ err_buckets removed: {}'.format(err_buckets.shape))
+      #file_df.drop(err_buckets.index, inplace=True) # remove errs, inplace
+      file_df = file_df.drop(err_buckets.index).copy() # remove errs
+      print('    __ file_df after: {}'.format(file_df.shape))
+
+    # gather together stats on cleaned up file_df
+    stats_df = sf.gather_stats(file_df) # parse to gather stats
+    
+    # stream
+    tight_df = get_tight_df(file_df)
+
+    # add tuple of data elements to dict with filename as key
+    all_drummer_data[long_name] = PerformanceData(next_drummer, file_df, file_wrapper, mtt, stats_df, tight_df)
+    
+  return all_drummer_data
+
+
+def get_tight_df(file_df):
+  '''
+    Takes the verbose dataframe and returns a slimmed down
+    one, filtered to include notes from just kick, snare, hh 
+    closed, hh open, and ride. This list is then further shrunk
+    with 51 (ride), 42 (closed hh), and 46 (open hh) all merged 
+    & analysed as a single right hand hh pattern. Notes are then 
+    replaced with human readable english descriptions for convenience
+    The end result is a df with just kick, snare, hats, the 3 core
+    items used for analysis.
+  '''
+  
+  # filter to core cols
+  #df1 = file_df.filter(items=['note',	'velocity',	'beat_offset',	'bar_beat_number']).copy()
+  df1 = file_df.filter(items=['note',	'velocity',	'beat_offset',	'bar_beat_number'], axis=1).copy()
+  
+  # drop index we don't need, it's still a column
+  df1.index = df1.index.droplevel(level='note')
+
+  # view info on instruments
+  print('   > raw instruments: {}'.format(df1['note'].unique()))
+  print('   {}'.format(MidiTools.getInstruments(df1['note'].unique())))
+  print('   counts before final filter: {}'.format(df1.groupby('note')['note'].count())) # debug
+
+  # filter notes to kick, snare, hh closed, hh open, and ride
+  df1 = df1[df1.note.isin([36, 38, 51, 42, 46])]
+  print('   counts after final filter: {}'.format(df1.groupby('note')['note'].count())) # debug
+
+  # Replace note numbers with user friendly english descriptions
+  # 51 (ride), 42 (closed hh), and 46 (open hh) all merged & analysed as
+  # single right hand hh pattern with the end result always giving kick, 
+  # snare, hats, the 3 core items to analyse
+  df1.note.replace({36: 'kick', 38: 'snare', 51:'hh', 42:'hh', 46:'hh' }, inplace=True)
+  print('    counts after final merge: {}'.format(df1.groupby('note')['note'].count())) # debug, view after final merging
+  return df1
+    
 
 def test_function_call(some_param):
   print('Test function in data_prep.py called and worked! when: {},  param:{}'.format(__now(), some_param))
+  
 
 
 # debug log that module loaded
