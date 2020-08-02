@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import data_prep as dp
-from data_prep import MidiTools as mt
+#from data_prep import MidiTools as mt
 
 
 def frequency_table(midi_file_data):
@@ -39,8 +39,11 @@ def frequency_table(midi_file_data):
   op5 = op4.reindex(columns=full_col_list, fill_value=0)
 
   # Label the instruments in the df
-  mt.getInstruments(op5.index.values)
-  new_row_index = dict(zip(op5.index.values, mt.getInstruments(op5.index.values)))
+  #mt.getInstruments(op5.index.values)
+  dp.MidiTools.getInstruments(op5.index.values)
+  #new_row_index = dict(zip(op5.index.values, mt.getInstruments(op5.index.values)))
+  new_row_index = dict(zip(op5.index.values, dp.MidiTools.getInstruments(op5.index.values)))
+  
   op6 = op5.rename(new_row_index)
 
   # DEBUG: Review completed Frequency Table
@@ -112,7 +115,9 @@ def gather_stats(midi_file_data):
   
   # label instruments with text instead of instrument number
   instrument_list = stats_1.index.unique(level=1)._data
-  instrument_map = dict(zip(instrument_list, mt.getInstruments(instrument_list)))
+  #instrument_map = dict(zip(instrument_list, mt.getInstruments(instrument_list)))
+  instrument_map = dict(zip(instrument_list, dp.MidiTools.getInstruments(instrument_list)))
+  
   
   # flip so headers are the beat number index 
   stats_2 = stats_1.T.stack(1).fillna(0)
@@ -203,4 +208,8 @@ print('>> LOADING custom module, when: {}, module name: {}'.format(__now(), __na
 
 if __name__ == '__main__':
   print('>> confirming {} module ran :) '.format(__name__))
+
+
+
+
 
