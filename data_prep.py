@@ -33,6 +33,7 @@ class MIDI_File_Wrapper:
   cum_ticks_col = 'total_ticks'
   raw_col = 'raw_data'
   cum_ms_col = 'total_seconds'
+  channel_col = 'channel'
 
   # used for setting order of columns in data model df
   __column_in_order = [track_msg_number_col, type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
@@ -209,31 +210,34 @@ class MIDI_File_Wrapper:
     for track_number, next_track in enumerate(_f.tracks):
       print('    > processing track: {}'.format(next_track))
       
-      df_setup = [] # capture data for next df
+      df_setup = [] # capture message data for next df
         
       # IMPORTANT NOTE.. 
       # 2 ways can extract messages, from track object
       # or from file object. Extracting from tracks gives
       # time in ticks, the file object converts it to secs
       
-      # build df structure from the MIDI tracks.
+      # build df structure from the next MIDI track...
       for msg_number, msg in enumerate(next_track):
         
         track_msg_number = '{}:{}'.format(track_number, msg_number)
         #print('      > processing msg: {}'.format(track_msg_number))
+        #print('      > processing msg: {}'.format(msg))
         
+        # append next MIDI message info
         df_setup.append(
           {
             self.track_msg_number_col: track_msg_number, # msg position in track
             self.type_col: msg.dict()['type'],
             self.time_col: msg.dict()['time'],
+            self.channel_col: None if 'channel' not in msg.dict() else msg.dict()['channel'],
             self.note_col: None if 'note' not in msg.dict() else msg.dict()['note'],
             self.vel_col: None if 'velocity' not in msg.dict() else msg.dict()['velocity'],
             self.raw_col:  str(msg.dict()) # saves whole message in case needed later
           } 
         )
 
-      next_df = pd.DataFrame(df_setup) # create the df
+      next_df = pd.DataFrame(df_setup) # create the df for the current track
 
       # tweak data types, change from 'object' columns to 'string'  ...
       next_df[self.type_col] =next_df[self.type_col].astype('string')
@@ -243,9 +247,9 @@ class MIDI_File_Wrapper:
       # giving time a message appears in the performance/ MIDI file.
       next_df[self.cum_ticks_col] =next_df[self.time_col].cumsum()
 
-      track_dfs.append(next_df)  # add it to the df list
+      track_dfs.append(next_df)  # add message data captured in current df to the list
         
-    # concat all dfs (required for multi-track MIDI file)
+    # concat all track dfs, required for multi-track MIDI file
     df_tmp = pd.concat(track_dfs)
 
     # sort according to cumsum col, reindex/ new index
