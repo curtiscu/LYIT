@@ -541,7 +541,8 @@ mt = MidiTools()
 def load_file(file_name, note_filter=[44]):
   '''
     Convenience function to collect steps for
-    loading and preprocessing a MIDI file.
+    loading, initial preprocessing and feature
+    generation from a MIDI file.
     
     file_name = String name of file to load
     note_filter = list/ array of instrument numbers to ignore/ filter
@@ -555,7 +556,7 @@ def load_file(file_name, note_filter=[44]):
   f_df = f.df_midi_data
   
   
-  #### SETUP TIMING BINS
+  #### SETUP TIMING BINS (MAIN DF)
 
   # MTT object for parsing file and
   # calculating crticial time metrics
@@ -611,12 +612,32 @@ def load_file(file_name, note_filter=[44]):
                         'file_beat_number' ], inplace=True)
 
 
-  #### SET REQUIRED INDEXES
-
-  #tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, append=True, drop=False)
+  #### SET REQUIRED INDEXES (MAIN DF)
+  
   tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, drop=False)
   
-  #### CAPTURE CHANGES
+  
+  #### FILTER ERROR BUCKETS (MAIN DF)
+  
+  print('    > checking for errs...')
+  err_buckets = sf.get_error_buckets(tmp_df) # parse for problem beats
+  if err_buckets.size == 0:
+    print('    ...no errors to see here')
+  else: # handle buckets > 1 hit for instrument
+    #display(err_buckets)
+    print('    __ tmp_df before: {}'.format(tmp_df.shape))
+    print('    __ err_buckets removed: {}'.format(err_buckets.shape))
+    tmp_df = tmp_df.drop(err_buckets.index).copy() # remove errs
+    print('    __ tmp_df after: {}'.format(tmp_df.shape))
+
+
+  #### GATHER OTHER BITS, BASED ON MAIN DF
+  
+  stats_df = sf.gather_stats(tmp_df) # parse to gather stats
+  tight_df = get_tight_df(tmp_df)
+    
+  
+  #### STORE CHANGES TO MAIN DF
   
   # replace MIDI_File_Wrapper dataframe with new one...
   f.df_midi_data = tmp_df
@@ -625,9 +646,9 @@ def load_file(file_name, note_filter=[44]):
   ####  RETURN RESULTS
   
   # return all of the finished DataFrame, MIDI_File_Wrapper, 
-  # and the MidiTimingTools, the caller can decide which of 
-  # those to keep
-  return f.df_midi_data, f, mtt
+  # and the MidiTimingTools, stats_df summary, and highly filtered
+  # tight_df .. the caller can decide which of those to keep
+  return f.df_midi_data, f, mtt, stats_df, tight_df
   
 
 '''
@@ -693,30 +714,9 @@ def load_all_data():
     long_name = row['long_midi_filename']
     short_name = row['midi_filename']
 
-    # loads DataFrame (file_df), MIDI_File_Wrapper (f), and
-    # the associated MidiTimingTools (mtt) objects..
-    file_df, file_wrapper, mtt = load_file(long_name)
-
-    print('    > checking for errs: {}'.format(short_name))
-
-    #### review data, see if errors to be removed...
-
-    err_buckets = sf.get_error_buckets(file_df) # parse for problem beats
-    if err_buckets.size == 0:
-      print('    ...no errors to see here')
-    else: # handle buckets > 1 hit for instrument
-      #display(err_buckets)
-      print('    __ file_df before: {}'.format(file_df.shape))
-      print('    __ err_buckets removed: {}'.format(err_buckets.shape))
-      #file_df.drop(err_buckets.index, inplace=True) # remove errs, inplace
-      file_df = file_df.drop(err_buckets.index).copy() # remove errs
-      print('    __ file_df after: {}'.format(file_df.shape))
-
-    # gather together stats on cleaned up file_df
-    stats_df = sf.gather_stats(file_df) # parse to gather stats
-    
-    # stream
-    tight_df = get_tight_df(file_df)
+    # load all data
+    print('BULK LOAD: {}, {}'.format(next_drummer, short_name))
+    file_df, file_wrapper, mtt, stats_df, tight_df = load_file(long_name)
 
     # add tuple of data elements to dict with filename as key
     all_drummer_data[long_name] = PerformanceData(next_drummer, file_df, file_wrapper, mtt, stats_df, tight_df)
