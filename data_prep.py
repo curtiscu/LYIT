@@ -538,7 +538,7 @@ def __now():
   
 mt = MidiTools()
 
-def load_file(file_name, note_filter=[44]):
+def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   '''
     Convenience function to collect steps for
     loading, initial preprocessing and feature
@@ -547,6 +547,9 @@ def load_file(file_name, note_filter=[44]):
     file_name = String name of file to load
     note_filter = list/ array of instrument numbers to ignore/ filter
             default filter is '44', removes hi hat with foot.
+    filter_err_buckets: If >1 instrument strike for same instrument 
+      in a beat_position, our algorithm doesn't work that detailed so strip
+      them all out.
   '''
   
   midi_file = MIDI_File_Wrapper(file_name, simplified_mapping, note_filter)
@@ -619,16 +622,21 @@ def load_file(file_name, note_filter=[44]):
   
   #### FILTER ERROR BUCKETS (MAIN DF)
   
-  print('    > checking for errs...')
-  err_buckets = sf.get_error_buckets(tmp_df) # parse for problem beats
-  if err_buckets.size == 0:
-    print('    ...no errors to see here')
-  else: # handle buckets > 1 hit for instrument
-    #display(err_buckets)
-    print('    __ tmp_df before: {}'.format(tmp_df.shape))
-    print('    __ err_buckets removed: {}'.format(err_buckets.shape))
-    tmp_df = tmp_df.drop(err_buckets.index).copy() # remove errs
-    print('    __ tmp_df after: {}'.format(tmp_df.shape))
+  if filter_err_buckets:
+    print('    > checking for errs...')
+    err_buckets = sf.get_error_buckets(tmp_df) # parse for problem beats
+    if err_buckets.size == 0:
+      print('    ...no errors to see here')
+    else: # handle buckets > 1 hit for instrument
+      #display(err_buckets)
+      print('    __ tmp_df before: {}'.format(tmp_df.shape))
+      print('    __ err_buckets removed: {}'.format(err_buckets.shape))
+      tmp_df = tmp_df.drop(err_buckets.index).copy() # remove errs
+      print('    __ tmp_df after: {}'.format(tmp_df.shape))
+  
+  else:
+    print('    > DISABLED - err bucket filtering.')
+
 
 
   #### GATHER OTHER BITS, BASED ON MAIN DF
@@ -683,11 +691,14 @@ def load_meta_file():
   return eval_df
 
 
-def load_all_data():
+def load_all_data(filter_err_buckets=True):
   '''
     Convenience function. Bulk loads data and prepares it
     for use/ access. 
     
+    filter_err_buckets: see load_file(filter_err_buckets). If False, 'file_df' has
+      all performance notes as the MIDI messages were in the file, none dropped 
+      or filtered.
       
     Filters to tunes in style..
       ['funk/groove1', 'soul/groove3', 'soul/groove4', 'hiphop/groove6', 'rock/groove8']
@@ -695,7 +706,7 @@ def load_all_data():
     Note this code brainstormed in this notebook..
       https://github.com/curtiscu/LYIT/blob/master/BulkLoadingAndFiltering_1.ipynb
   '''
-
+  
   eval_df = load_meta_file()
   
   # NOTE: these are labels for each 'style' (1-10) the drummers
@@ -716,7 +727,7 @@ def load_all_data():
 
     # load all data
     print('BULK LOAD: {}, {}'.format(next_drummer, short_name))
-    file_df, file_wrapper, mtt, stats_df, tight_df = load_file(long_name)
+    file_df, file_wrapper, mtt, stats_df, tight_df = load_file(long_name, filter_err_buckets)
 
     # add tuple of data elements to dict with filename as key
     all_drummer_data[long_name] = PerformanceData(next_drummer, file_df, file_wrapper, mtt, stats_df, tight_df)
