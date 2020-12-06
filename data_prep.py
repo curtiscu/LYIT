@@ -670,7 +670,7 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   stats_df = DataFrame fleshed out with additional features/ metrics
   tight_df = highly filtered to just the final kick, snare, hihats instruments
 '''
-PerformanceData = namedtuple('PerformanceData' , 'drummer_id file_df file_wrapper tools stats_df tight_df')
+PerformanceData = namedtuple('PerformanceData' , 'drummer_id style file_df file_wrapper tools stats_df tight_df tight_style_df')
 
 meta_file = '/content/drive/My Drive/LYIT/Dissertation/data/eval_data.csv'
 
@@ -724,13 +724,19 @@ def load_all_data(filter_err_buckets=True):
     next_drummer = row['drummer']
     long_name = row['long_midi_filename']
     short_name = row['midi_filename']
+    style = row['style']
 
     # load all data
-    print('BULK LOAD: {}, {}'.format(next_drummer, short_name))
+    print('BULK LOAD: {}, {}, {}'.format(next_drummer, short_name, style))
     file_df, file_wrapper, mtt, stats_df, tight_df = load_file(long_name, filter_err_buckets)
+    
+    # adding 'style' (i.e. song category) to full file_df
+    file_df['style'] = style
+    tight_style_df = tight_df.copy()
+    tight_style_df['style'] = style
 
     # add tuple of data elements to dict with filename as key
-    all_drummer_data[long_name] = PerformanceData(next_drummer, file_df, file_wrapper, mtt, stats_df, tight_df)
+    all_drummer_data[long_name] = PerformanceData(next_drummer, style, file_df, file_wrapper, mtt, stats_df, tight_df, tight_style_df)
     
   return all_drummer_data
 
