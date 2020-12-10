@@ -614,6 +614,9 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   f_df['beat_center'] = beats_col
   f_df['file_beat_number'] = pd.Categorical(f_df.beat_center).codes
 
+  # uses ticks and tempo saved from file loading time..
+  make_offset_ms_col = lambda x: mido.tick2second(x, f.ticks(), f.tempo_us())
+  f_df['beat_offset_ms'] = f_df['beat_offset'].map(make_offset_ms_col)
 
   # make a copy, for now..
   tmp_df = f_df.copy(deep=True)
@@ -846,7 +849,7 @@ def get_tight_df(file_df):
   '''
   
   # filter to core cols
-  df1 = file_df.filter(items=['note',	'velocity',	'beat_offset',	'bar_beat_number'], axis=1).copy()
+  df1 = file_df.filter(items=['note',	'velocity',	'beat_offset', 'beat_offset_ms', 'bar_beat_number'], axis=1).copy()
   
   # drop index we don't need, it's still a column
   df1.index = df1.index.droplevel(level='note')
