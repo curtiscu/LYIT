@@ -284,6 +284,8 @@ class MIDI_File_Wrapper:
     print('    __notes post filter: {}'.format(self.clean_list(df_tmp.note.unique())))
       
     # apply note mappings, store in new column
+    # note: this is used primarily to map from Roland MIDI
+    # to General MIDI drum notes, specified in 'simplified_mapping'
     if self.note_map != None:
       df_tmp[self.note_col] = df_tmp[self.note_col].map(self.note_map, na_action='ignore')
 
@@ -507,9 +509,8 @@ class MidiTools:
     return good, bad
 
 
-
-
-# mappings taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
+# maps from Roland MIDI notes to General MIDI standard
+# taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
 simplified_mapping = {22: 42,	# Closed Hi-Hat
                       26: 46, # Open Hi-Hat
                       36: 36,	# Bass
@@ -624,7 +625,7 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   
   if filter_err_buckets:
     print('    > checking for errs...')
-    err_buckets = sf.get_error_buckets(tmp_df) # parse for problem beats
+    err_buckets = get_error_buckets(tmp_df) # parse for problem beats
     if err_buckets.size == 0:
       print('    ...no errors to see here')
     else: # handle buckets > 1 hit for instrument
@@ -659,6 +660,34 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   return f.df_midi_data, f, mtt, stats_df, tight_df
   
 
+# returns a list of problematic beat locations
+# that have >1 note strike for a given instrument
+# in any single 16th note beat position
+def get_error_buckets(midi_file_data):
+  '''Detect multiple hits in quantize bucket.
+  
+  Detect problem beats in bars that have more hits
+  at a quantize level more detailed than the code 
+  can handle, i.e. below 16th note level.
+  
+  NOTE..
+  - assumes parameter 'midi_file_data' has been 
+  created/ formatted by loading a MIDI file
+  using function 'data_prep.load_file()'
+  
+  - this doesn't actually take any action such as
+  filtering, just for informational purposes
+  '''
+  m_hits = midi_file_data.copy()
+  m_hits.drop(columns=['note'], inplace=True)
+
+  # filters entire dataframe to only show groups
+  # with more than 1 member, i.e. duplicate htis in bucket
+  # Basically the output below must (currently) be flagged as an error
+  result = m_hits.groupby(['beat_center','note']).filter(lambda a_group: len(a_group) > 1)
+  
+  return result
+  
 '''
   Collection object to hold in a single place all information
   related to a performance loaded from a MIDI file.
@@ -754,7 +783,6 @@ def get_tight_df(file_df):
   '''
   
   # filter to core cols
-  #df1 = file_df.filter(items=['note',	'velocity',	'beat_offset',	'bar_beat_number']).copy()
   df1 = file_df.filter(items=['note',	'velocity',	'beat_offset',	'bar_beat_number'], axis=1).copy()
   
   # drop index we don't need, it's still a column
