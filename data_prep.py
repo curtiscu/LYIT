@@ -81,6 +81,8 @@ class MIDI_File_Wrapper:
       into primary dataframe
     '''
 
+    global log_dict
+    
     print('FILE name: {}'.format(self.my_file_name))
 
     # load file
@@ -112,7 +114,7 @@ class MIDI_File_Wrapper:
       raise ValueError('ERROR! no time signature found: {}'.format(midi_file))
     if self.my_tempo is None:
       raise ValueError('ERROR! no tempo found: {}'.format(midi_file))
-
+      
     # load MIDI messages from file into DF
     self.__load_messages()
 
@@ -124,7 +126,11 @@ class MIDI_File_Wrapper:
     print('    good instruments: {}, {}'.format(len(good), good))
     if len(bad) > 0:
       print('    ____ ERR! INVALID PERCUSSION INSTRUMENTS: {}, {}'.format(len(bad),bad))
+    
 
+    
+    
+    
 
   def tempo_us(self):
     ''' Tempo in microseconds'''
@@ -181,6 +187,8 @@ class MIDI_File_Wrapper:
       - most likely a problem if type 2 (multiple asynchronous tracks)
     '''
 
+    global log_dict
+    
     # shorthand
     _f = self.my_file_midi
     
@@ -199,6 +207,8 @@ class MIDI_File_Wrapper:
     else:
       raise ValueError("ERROR! Unknown MIDI file type, unable to proceed with file type: {}, tracks: {}, midi_file: {}".format(_f.type, _f.tracks, _f))
 
+    # logs
+    log_dict['file_type'] = [_f.type]
 
     # Next loop will ..
     # - make dfs from all tracks
@@ -553,7 +563,18 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
       them all out.
   '''
   
+  global log_dict
+  
   midi_file = MIDI_File_Wrapper(file_name, simplified_mapping, note_filter)
+  
+  # logs
+  log_dict['ts_num'] = [midi_file.ts_num()]
+  log_dict['ts_den'] = [midi_file.ts_denom()]
+  log_dict['tempo_us'] = [midi_file.tempo_us()]
+  log_dict['tempo_bpm'] = [midi_file.tempo_bpm()]
+  log_dict['PPQN'] = [midi_file.ticks()]
+  log_dict['first_hit'] = [midi_file.first_hit()]
+  log_dict['last_hit'] = [midi_file.last_hit()]
   
   # some shortcuts
   f = midi_file
@@ -576,6 +597,12 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   bars_in_file = mtt.bars_in_file()
   tp_beat = mtt.ts_ticks_per_beat()
   tp_bin = mtt.bin_size()
+  
+  # log
+  log_dict['bars_in_file'] = [bars_in_file]
+  log_dict['quantize_level'] = [quantize_level]
+  log_dict['ticks_per_beat'] = [tp_beat]
+  log_dict['ticks_per_bin'] = [tp_bin]
 
   # DEBUG
   print('    bar info - bars in file: {}, bar quantize level: {}'.format(bars_in_file, quantize_level))
@@ -626,6 +653,8 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   if filter_err_buckets:
     print('    > checking for errs...')
     err_buckets = get_error_buckets(tmp_df) # parse for problem beats
+    # log
+    log_dict['err_buckets'] = [err_buckets.shape]
     if err_buckets.size == 0:
       print('    ...no errors to see here')
     else: # handle buckets > 1 hit for instrument
@@ -634,6 +663,8 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
       print('    __ err_buckets removed: {}'.format(err_buckets.shape))
       tmp_df = tmp_df.drop(err_buckets.index).copy() # remove errs
       print('    __ tmp_df after: {}'.format(tmp_df.shape))
+      
+
   
   else:
     print('    > DISABLED - err bucket filtering.')
@@ -720,6 +751,14 @@ def load_meta_file():
   return eval_df
 
 
+
+# INIT - call to reset at start 
+log_dict = {}  # single files' logs 
+all_logs_df = None # holds aggregated logs when load_all_data() is done. 
+
+def get_last_logs():
+  return all_logs_df
+
 def load_all_data(filter_err_buckets=True):
   '''
     Convenience function. Bulk loads data and prepares it
@@ -736,6 +775,9 @@ def load_all_data(filter_err_buckets=True):
       https://github.com/curtiscu/LYIT/blob/master/BulkLoadingAndFiltering_1.ipynb
   '''
   
+  global all_logs_df
+  global log_dict
+  
   eval_df = load_meta_file()
   
   # NOTE: these are labels for each 'style' (1-10) the drummers
@@ -745,16 +787,29 @@ def load_all_data(filter_err_buckets=True):
   eval_df = eval_df[eval_df['style'].isin(song_styles)]
   
   all_drummer_data = {}
+  
+  # reset logging
+  log_dfs = [] # interim container for files so far 
+
 
   # iterate over each file meta data
   for index, row in eval_df.iterrows():
 
+    # reset logging
+    log_dict = {}  # single files' logs 
+    
     # access data using column names
     next_drummer = row['drummer']
     long_name = row['long_midi_filename']
     short_name = row['midi_filename']
     style = row['style']
 
+    # log
+    log_dict['long_name'] = [long_name]
+    log_dict['style'] = [style]
+    log_dict['drummer'] = [next_drummer]
+    
+    
     # load all data
     print('BULK LOAD: {}, {}, {}'.format(next_drummer, short_name, style))
     file_df, file_wrapper, mtt, stats_df, tight_df = load_file(long_name, filter_err_buckets)
@@ -767,6 +822,14 @@ def load_all_data(filter_err_buckets=True):
     # add tuple of data elements to dict with filename as key
     all_drummer_data[long_name] = PerformanceData(next_drummer, style, file_df, file_wrapper, mtt, stats_df, tight_df, tight_style_df)
     
+    print('log_dict: {}'.format(log_dict))
+    
+    # when done processing a file, append info to logs
+    log_dfs.append(pd.DataFrame.from_dict(log_dict))
+    
+  # when done loading all file, concat log dfs
+  all_logs_df = pd.concat(log_dfs)
+  
   return all_drummer_data
 
 
