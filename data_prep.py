@@ -805,7 +805,7 @@ def load_all_data(filter_err_buckets=True):
     style = row['style']
 
     # log
-    log_dict['long_name'] = [long_name]
+    log_dict['file_name'] = [short_name]
     log_dict['style'] = [style]
     log_dict['drummer'] = [next_drummer]
     
@@ -828,7 +828,7 @@ def load_all_data(filter_err_buckets=True):
     log_dfs.append(pd.DataFrame.from_dict(log_dict))
     
   # when done loading all file, concat log dfs
-  all_logs_df = pd.concat(log_dfs)
+  all_logs_df = pd.concat(log_dfs, ignore_index=True)
   
   return all_drummer_data
 
