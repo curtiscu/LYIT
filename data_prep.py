@@ -640,11 +640,12 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
 
 
   # drop other columns we don't need
-  tmp_df.drop(columns=[ 'msg_type', 
+  """tmp_df.drop(columns=[ 'msg_type', 
                         'delta_ticks', 
                         'total_seconds',  
                         'raw_data', 
                         'file_beat_number' ], inplace=True)
+  """
 
 
   #### SET REQUIRED INDEXES (MAIN DF)
@@ -780,7 +781,9 @@ def load_all_data(filter_err_buckets=True):
   """
   
   global all_logs_df
-  global log_dict
+  global log_dict  
+  all_logs_df = None
+  log_dict = {}
   
   eval_df = load_meta_file()
   
@@ -826,6 +829,9 @@ def load_all_data(filter_err_buckets=True):
     file_df['style'] = style
     tight_style_df = tight_df.copy()
     tight_style_df['style'] = style
+    
+    # remove beat_offset_ms, n/a in this context
+    tight_df.drop(columns=['beat_offset_ms'], inplace=True)
 
     # add tuple of data elements to dict with filename as key
     all_drummer_data[long_name] = PerformanceData(next_drummer, 
@@ -837,7 +843,7 @@ def load_all_data(filter_err_buckets=True):
                                                   tight_df, 
                                                   tight_style_df)
 
-    # master_df: used to make final single df of all
+    # build master_df, a single df of all
     # songs, all styles, all drummers
     df1 = tight_style_df.copy()
     df1.insert(0, 'drummer_ID', next_drummer) # add it as first col
@@ -874,7 +880,9 @@ def get_tight_df(file_df):
   '''
   
   # filter to core cols
-  df1 = file_df.filter(items=['note',	'velocity',	'beat_offset', 'beat_offset_ms', 'bar_beat_number'], axis=1).copy()
+  #df1 = file_df.filter(items=['note',	'velocity',	'beat_offset', 'beat_offset_ms', 'bar_beat_number'], axis=1).copy()
+  df1 = file_df.copy()
+  df1 = df1.filter(items=['note',	'velocity',	'beat_offset',  'beat_offset_ms', 'bar_beat_number'], axis=1)
   
   # drop index we don't need, it's still a column
   df1.index = df1.index.droplevel(level='note')
