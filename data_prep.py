@@ -1,13 +1,13 @@
-
 """
+Curtis Cunningham
+Dissertation, MSc Big Data Analytics
+Letterkenny Institute of Technology
 
-Prep library code for dissertation: v3, 2020-06-02
-Loads MIDI files using MIDO library and does
-a bunch of preprocessing of the data
-
+Library code..
+- parse/ load MIDI files using the MIDO library
+- generates custom features
+- returns all data in neatly packaged DataFrames
 """
-
-
 
 # imports
 import pandas as pd
@@ -23,21 +23,23 @@ class MIDI_File_Wrapper:
   Utility wrapper for loading, parsding a mido.MidiFile object
   '''
 
-  # column headers for internal data frame 
-  # containing MIDI messages loaded from file
-  track_msg_number_col = 'track_msg_num'
-  vel_col = 'velocity'
-  note_col = 'note'
-  type_col = 'msg_type'
-  time_col = 'delta_ticks'
-  cum_ticks_col = 'total_ticks'
-  raw_col = 'raw_data'
-  cum_ms_col = 'total_seconds'
-  channel_col = 'channel'
+  ############################################
+  # col headers for internal structure holding info
+  # extracted from messages loaded from MIDI data file
+  track_msg_number_col = 'track_msg_num' # seq# in file & track
+  vel_col = 'velocity'          # MIDI volume, 0-127
+  note_col = 'note'             # MIDI note
+  type_col = 'msg_type'         # type of MIDI msg
+  time_col = 'delta_ticks'      # time offset from last msg
+  cum_ticks_col = 'total_ticks' # cum calculated timing col, ticks
+  raw_col = 'raw_data'          # cache entire MIDI msg 
+  cum_ms_col = 'total_seconds'  # cum calculated timing col, secs
+  channel_col = 'channel'       # MIDI channel msg sent on
 
   # used for setting order of columns in data model df
   __column_in_order = [track_msg_number_col, type_col, time_col, cum_ticks_col, cum_ms_col, note_col, vel_col, raw_col]
 
+  # instance init method
   def __init__(self, file_name, note_map = None, note_filter = None):
     self.my_file_name = file_name   # string filename
     self.my_file_midi = None        # mido.MidiFile instance   
@@ -50,11 +52,10 @@ class MIDI_File_Wrapper:
     self.last_note_on = 0           # stores last performed event in file
     self.first_note_on = 0          # stores first performed event in file
 
-    # load file and gather data...
+    # do the work...
     self.__parse_file()
 
-
-  # For call to str(). Prints readable form 
+  # For debugging, prints readable form 
   def __str__(self): 
     return str('file: {}'.format(self.my_file_midi))
 
@@ -71,7 +72,7 @@ class MIDI_File_Wrapper:
     self.last_note_on = 0           # stores last performed event in file
     self.first_note_on = 0          # stores first performed event in file
 
-    # load file and gather data...
+    # do the work...
     self.__parse_file()
   
   def __parse_file(self):
@@ -81,11 +82,11 @@ class MIDI_File_Wrapper:
       into primary dataframe
     '''
 
-    global log_dict
+    global log_dict # container for log msgs
     
     print('FILE name: {}'.format(self.my_file_name))
 
-    # load file
+    # create MIDI file object
     midi_file = MidiFile(self.my_file_name)
     self.my_file_midi = midi_file 
     print('    loaded file: {}'.format(midi_file))
@@ -96,7 +97,7 @@ class MIDI_File_Wrapper:
       if msg.type == 'time_signature':
         print('    time sig: {}'.format(msg))
 
-        # make sure no time sig changes
+        # ensure no time sig changes, would break everything
         if self.my_time_sig != None:
           raise ValueError('ERROR! more than one time sig: {}, {}'.format(self.my_time_sig, msg))
         self.my_time_sig = msg
@@ -104,12 +105,12 @@ class MIDI_File_Wrapper:
       elif msg.type == 'set_tempo':
         print('    tempo: {}'.format(msg))
 
-        # make sure no tempo changes
+        # ensure no tempo changes, would break everything
         if self.my_tempo != None:
           raise ValueError('ERROR! more than one tempo: {}, {}'.format(self.my_tempo, msg))
         self.my_tempo = msg
 
-    # now check we actually have tempo and time_sig set, or complain...
+    # ensure tempo and time_sig available, or abort ...
     if self.my_time_sig is None:
       raise ValueError('ERROR! no time signature found: {}'.format(midi_file))
     if self.my_tempo is None:
@@ -128,76 +129,73 @@ class MIDI_File_Wrapper:
       print('    ____ ERR! INVALID PERCUSSION INSTRUMENTS: {}, {}'.format(len(bad),bad))
     
 
-    
-    
-    
-
   def tempo_us(self):
-    ''' Tempo in microseconds'''
+    # MIDI tempo, microseconds
     return self.my_tempo.tempo
 
   def tempo_bpm(self):
-    ''' Tempo in bpm'''
+    # MIDI tempo in bpm
     return mido.tempo2bpm(self.tempo_us())
 
   def ticks(self):
-    ''' Returns number of MIDI ticks configured in this file'''
+    # The PPQN setting for the file, i.e. num of MIDI
+    # ticks per quarter note specifying the timing res
     return self.my_file_midi.ticks_per_beat
 
   def length(self):
-    ''' returns running time in seconds'''
+    # Return running time in seconds
     return self.my_file_midi.length
 
   def msg_counts(self):
-    ''' handy for debug '''
+    # convenience method, handy for debug
     return self.df_midi_data['msg_type'].value_counts()
 
   def ts_num(self):
-    ''' Time signature numerator (top number)'''
+    # Time sig numerator (top number)
     return self.my_time_sig.numerator
 
   def ts_denom(self):
-    ''' Time signature denominator (bottom number) '''
+    # Time sig denominator (bottom number)
     return self.my_time_sig.denominator
 
   def first_hit(self):
+    # When does the first performance
+    # note appear in the file?
     return self.first_note_on
 
   def last_hit(self):
+    # When does the last performance
+    # note appear in the file?
     return self.last_note_on
 
   def calculate_seconds(self, ticks_since_start):
-    ''' 
-    Takes elapsed ticks since start of files, returns 
-        position in file in absolute seconds'''
-
-    # uses ticks and tempo saved from file loading time..
+    # Convenience function, takes elapsed ticks since 
+    # start of files, returns abs position in file in secs.
+    # Uses ticks and tempo saved from file loading time..
     return mido.tick2second(ticks_since_start, self.ticks(), self.tempo_us())
 
-
   def __row_to_seconds(self, row):
+    # Takes a row, extracts 'cum_ticks_col' feature
+    # calculates abs time in secs and returns that.
     return self.calculate_seconds(row[self.cum_ticks_col])
 
-
   def __load_messages(self):  
-    '''
-      Careful about handling file type here ..
-      - could be a problem if not MIDI type 0 (single track)
-      - limited testing, maybe a problem if type 1 (multiple synchronous tracks)
-      - most likely a problem if type 2 (multiple asynchronous tracks)
-    '''
+    # Workhorse function, does the bulk of parsing the
+    # MIDI messages, extracting and converting them to meaningful
+    # features, generates some custom features during the process
+    # NOTE: Careful about MIDI file type, can only handle MIDI
+    # file types 0 & 1, type 2 is a problem.
+    #   0: contains single track
+    #   1: contains multiple synchronous tracks
+    #   2: contains multiple asynchronous tracks
 
-    global log_dict
+    global log_dict # log msg container
     
-    # shorthand
+    # shorthand ref
     _f = self.my_file_midi
     
-    # DEBUG check for track count ...
+    # DEBUG check track count, file type ...
     print('    track count: {}, tracks: {}'.format(len(_f.tracks), _f.tracks))
-    
-    # shouldn't be a problem if MIDI type 0 (single track)
-    # maybe a problem if type 1 (multiple synchronous tracks)
-    # most likely a problem if type 2 (multiple asynchronous tracks)
     print('    MIDI file type: {}'.format(_f.type))
     
     if _f.type == 0:
@@ -222,8 +220,7 @@ class MIDI_File_Wrapper:
       
       df_setup = [] # capture message data for next df
         
-      # IMPORTANT NOTE.. 
-      # 2 ways can extract messages, from track object
+      # NOTE: 2 ways can extract messages, from track object
       # or from file object. Extracting from tracks gives
       # time in ticks, the file object converts it to secs
       
@@ -231,8 +228,6 @@ class MIDI_File_Wrapper:
       for msg_number, msg in enumerate(next_track):
         
         track_msg_number = '{}:{}'.format(track_number, msg_number)
-        #print('      > processing msg: {}'.format(track_msg_number))
-        #print('      > processing msg: {}'.format(msg))
         
         # append next MIDI message info
         df_setup.append(
@@ -243,7 +238,7 @@ class MIDI_File_Wrapper:
             self.channel_col: None if 'channel' not in msg.dict() else msg.dict()['channel'],
             self.note_col: None if 'note' not in msg.dict() else msg.dict()['note'],
             self.vel_col: None if 'velocity' not in msg.dict() else msg.dict()['velocity'],
-            self.raw_col:  str(msg.dict()) # saves whole message in case needed later
+            self.raw_col:  str(msg.dict()) # cache whole msg just in case
           } 
         )
 
@@ -257,7 +252,7 @@ class MIDI_File_Wrapper:
       # giving time a message appears in the performance/ MIDI file.
       next_df[self.cum_ticks_col] =next_df[self.time_col].cumsum()
 
-      track_dfs.append(next_df)  # add message data captured in current df to the list
+      track_dfs.append(next_df)  # store msg data captured in current track
         
     # concat all track dfs, required for multi-track MIDI file
     df_tmp = pd.concat(track_dfs)
@@ -265,8 +260,8 @@ class MIDI_File_Wrapper:
     # sort according to cumsum col, reindex/ new index
     df_tmp.sort_values([self.cum_ticks_col], ignore_index=True, inplace=True)
 
-    # NOTE: at this point, all msgs in file are loaded and aggregated into 
-    #       single df, and ordered according to MIDI tick position
+    # NOTE: all msgs now loaded and aggregated into single 
+    # df, and ordered according to MIDI tick position
     
     # remember the tick position of first note_on in file
     self.first_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].head(1)[self.cum_ticks_col].values[0]
@@ -275,12 +270,10 @@ class MIDI_File_Wrapper:
     self.last_note_on = df_tmp[df_tmp[self.type_col] == 'note_on'].tail(1)[self.cum_ticks_col].values[0]
 
     # add cumulative milliseconds from start of file
-    # NOTE: this timing needs to be recalculated if the tempo
-    #         is ever changed!!!
+    # NOTE: needs to be recalculated if the tempo is ever changed!!!
     df_tmp[self.cum_ms_col] = df_tmp.apply(self.__row_to_seconds, axis=1)
 
-    # NOTE: next section allows for filtering of instruments
-    # from loaded MIDI file
+    # NOTE: next section implements filtering of instruments
     
     # show list of raw/ unfiltered instruments loaded from file...
     print('    __notes pre-filter: {}'.format(self.clean_list(df_tmp.note.unique())))
@@ -292,10 +285,9 @@ class MIDI_File_Wrapper:
       
     # show list instruments after filtering
     print('    __notes post filter: {}'.format(self.clean_list(df_tmp.note.unique())))
-      
-    # apply note mappings, store in new column
-    # note: this is used primarily to map from Roland MIDI
-    # to General MIDI drum notes, specified in 'simplified_mapping'
+
+    # Map from Roland MIDI to General MIDI drum 
+    # notes, specified in 'simplified_mapping'
     if self.note_map != None:
       df_tmp[self.note_col] = df_tmp[self.note_col].map(self.note_map, na_action='ignore')
 
@@ -315,22 +307,22 @@ class MIDI_File_Wrapper:
     return some_list[pd.notnull(some_list)]  # filters NaN 
 
 
-
-
 class MidiTimingTools:
-
+  ''' Utility class for calculating timing
+  information related to a single MIDI file
+  '''
 
   # all parameters required
   def __init__(self, label, file_ticks_per_beat, us_per_beat, time_sig_numerator, time_sig_denominator, last_note_on):
     self.label = label                                # pretty label, for handy reference
-    self.file_ticks_per_beat = file_ticks_per_beat    # from MIDI file header
-    self.time_sig_numerator = time_sig_numerator      #   "
-    self.time_sig_denominator = time_sig_denominator  #   "
-    self.us_per_beat = us_per_beat                    # from MIDI file meta message
+    self.file_ticks_per_beat = file_ticks_per_beat    # PPQN (ticks per quarter note)
+    self.time_sig_numerator = time_sig_numerator      # number of beats in a bar
+    self.time_sig_denominator = time_sig_denominator  # type of beat that gets the count
+    self.us_per_beat = us_per_beat                    # microseconds per quarter note
     self.last_note_on = last_note_on                  # from MIDI file data
 
 
-  # For call to str(). Prints readable form, tests all 
+  # Convenience debug, prints readable form, tests all 
   # function calls to build debug string output. 
   def __str__(self): 
     return str("LABEL: {} \n  Ticks p/beat: {} \n  BPM: {} \n  time sig: {}/ {} \n  bars in file: {} \n  beats in file: {} \n  ticks in file: {} \n  bins: {} \n  beats: {}"
@@ -346,6 +338,7 @@ class MidiTimingTools:
             self.get_beats()))
 
   def bpm(self):
+    # calculate tempo in bpm
     return (60 * 1000000) / self.us_per_beat
 
   # ts = time signature
@@ -353,26 +346,31 @@ class MidiTimingTools:
     return self.file_ticks_per_beat * ( 4/ self.time_sig_denominator )
 
   def ticks_per_bar(self):
+    # calc total ticks in a bar
     return self.ts_ticks_per_beat() * self.time_sig_numerator
 
   def ticks_per_8(self):
+    # calc ticks per 1/8 note
     return self.file_ticks_per_beat/ 2
     
   def ticks_per_16(self):
+    # calc ticks per 1/16 note
     return self.file_ticks_per_beat / 4
 
-  # calculates total bars, round up for whole bars
   def bars_in_file(self):
+    # calc total music bars in file, round up for whole bars  
     return math.ceil(self.last_note_on / self.ticks_per_bar()) 
 
   def ticks_in_file(self):
-    return int(self.bars_in_file() * self.ticks_per_bar()) # total ticks to render (file_range)
+    # calc total ticks in file
+    return int(self.bars_in_file() * self.ticks_per_bar()) 
 
   def beats_in_file(self):
+    # calc time sig beats in file
     return self.bars_in_file() * self.time_sig_numerator
 
-  # bucket size for quantizing, hardwired here to 1/16 notes
-  # perhaps this might be best being configurable?
+  # NOTE: critical param, specifies bucket size for quantizing
+  #   i.e. the level of detail analysis will focus on
   def bin_size(self):
     return int(self.ticks_per_16()) 
 
@@ -389,11 +387,13 @@ class MidiTimingTools:
     end_tick = start_tick + (self.ticks_per_bar() * number_of_bars)
     return start_tick, end_tick
 
-  def get_bins(self):   # my_bins
+  # calc bin boundaries
+  def get_bins(self): 
     my_bin_size = self.bin_size()
     file_range = self.ticks_in_file()
     return range(0 - (int(my_bin_size/ 2)), file_range + my_bin_size, my_bin_size)
 
+  # calc the beat positions in a file in MIDI ticks
   def get_beats(self):
     my_bin_size = self.bin_size()
     file_range = self.ticks_in_file()
@@ -403,11 +403,11 @@ class MidiTimingTools:
   def calculated_bins(self, cumulative_ticks_series):
 	  return pd.cut(cumulative_ticks_series, bins=self.get_bins(), right=False)
 
-  # takes series with cumulative ticks since start of file for the 
-  # MIDI note_on events, and returns a series stating the centre
+  # Will takes a series with cumulative ticks since start of file for
+  # the MIDI note_on events. Returns a series stating the centre
   # of the beat for each given MIDI event
   def assigned_beat_location(self, cumulative_ticks_column):
-    #return pd.cut(cumulative_ticks_column.values, bins=self.get_bins(), right=False, labels=self.get_beats())
+
     return pd.cut(cumulative_ticks_column, bins=self.get_bins(), right=False, labels=self.get_beats())
 
 
@@ -415,22 +415,16 @@ class MidiTimingTools:
     my_beats = self.assigned_beat_location(cumulative_ticks_column)
     tmp_dict = dict(enumerate(my_beats.cat.categories))
     beat_centers = my_beats.cat.codes.map(tmp_dict)
-
     offsets = cumulative_ticks_column - beat_centers
 
-    # this will return 'beat_centers' as Int
-    #return beat_centers, offsets  
-
-    # this will return 'my_beats' as Categorical
-    return my_beats, offsets
+    #return beat_centers, offsets  # results in 'beat_centers' as Int
+    return my_beats, offsets # results in 'my_beats' as Categorical
 
 
 class MidiTools:
-  '''
-  Convert to/ from MIDI notes to percussion instrumentz
-  As per http://www.midi.org/techspecs/gm1sound.php
-  '''
-
+  # Used to convert to/ from MIDI notes to readable English
+  # string, as per http://www.midi.org/techspecs/gm1sound.php
+ 
   note2Instrument = { 35: "Acoustic Bass Drum",
                 36: "Bass Drum 1 (36)",
                 37: "Side Stick (37)", 
@@ -480,10 +474,7 @@ class MidiTools:
                 81: "Open Triangle (81)" }
   
   def mapInstrument(midi_note):
-    '''
-    Takes MIDI note number, returns None if not found, otherwise 
-    returns a string name of the percussion instrument
-    '''
+    # returns None if MIDI note not found, otherwise string name
     answer = None
     if midi_note in MidiTools.note2Instrument:
       answer = MidiTools.note2Instrument[midi_note]
@@ -491,24 +482,20 @@ class MidiTools:
     return answer
 
   def getInstruments(instrument_list):
-    '''
-    Takes a list of MIDI numeric notes, returns a list
-    of string names of instruments played on this track
-    '''
-	
+    # Convenience function, takes list of MIDI notes, returns a list
+    # of string names of instruments played on this track
     result = []
-	
     if instrument_list is not None:
-      # NOTE: concise notation copied from https://stackoverflow.com/a/38702484
+      # credit: concise notation copied from https://stackoverflow.com/a/38702484
       result = [*map(MidiTools.mapInstrument, instrument_list)]
     
     return result
 
-    
   def getInstruments2(instrument_list):
+    # takes list of MIDI notes, checks if they're valid
 
-    good = {}
-    bad = []
+    good = {} # valid ones
+    bad = []  # invalid ones
 
     for next in instrument_list:
       if next in MidiTools.note2Instrument:
@@ -519,7 +506,7 @@ class MidiTools:
     return good, bad
 
 
-# maps from Roland MIDI notes to General MIDI standard
+# maps from Roland TD-11 MIDI notes to General MIDI standard
 # taken from https://magenta.tensorflow.org/datasets/groove#drum-mapping
 simplified_mapping = {22: 42,	# Closed Hi-Hat
                       26: 46, # Open Hi-Hat
@@ -545,14 +532,13 @@ simplified_mapping = {22: 42,	# Closed Hi-Hat
                       59: 51}	# Ride Cymbal
  
 def __now():
+  # convenience function
   return datetime.datetime.now()
   
-mt = MidiTools()
-
+mt = MidiTools() 
+  
 def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
-  '''
-    Convenience function to collect steps for
-    loading, initial preprocessing and feature
+  '''Steps for loading, initial preprocessing and feature
     generation from a MIDI file.
     
     file_name = String name of file to load
@@ -563,8 +549,9 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
       them all out.
   '''
   
-  global log_dict
+  global log_dict # msg log
   
+  # loads all data from MIDI file...
   midi_file = MIDI_File_Wrapper(file_name, simplified_mapping, note_filter)
   
   # logs
@@ -580,19 +567,13 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   f = midi_file
   f_df = f.df_midi_data
   
-  
   #### SETUP TIMING BINS (MAIN DF)
 
-  # MTT object for parsing file and
-  # calculating crticial time metrics
-  mtt = MidiTimingTools(file_name, 
-                        f.ticks(),  
-                        f.tempo_us(), 
-                        f.ts_num(), 
-                        f.ts_denom(), 
-                        f.last_hit())
+  # setup timing tool for extracting critical time metrics
+  mtt = MidiTimingTools(file_name, f.ticks(), f.tempo_us(), 
+                        f.ts_num(), f.ts_denom(),  f.last_hit())
 
-  # values needed these for making MultiIndex later
+  # values used for making MultiIndex later
   quantize_level = mtt.bins_per_bar()
   bars_in_file = mtt.bars_in_file()
   tp_beat = mtt.ts_ticks_per_beat()
@@ -625,13 +606,13 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   # filter to only note_on events
   tmp_df = tmp_df[tmp_df['msg_type'] == 'note_on'].copy() 
 
-
-  # sort out bar column
+  # add column indicating musical bar in the file the beats are in
   tmp_df['bar_number'] = (tmp_df.file_beat_number // quantize_level) + 1
+  
   # add column for beat within the bar index
   tmp_df['bar_beat_number'] = (tmp_df.file_beat_number % 16) + 1
 
-  # sort out types
+  # tidy up data types
   tmp_df['bar_number'] = tmp_df['bar_number'].astype(int)
   tmp_df['bar_beat_number'] = tmp_df['bar_beat_number'].astype(int)
   tmp_df['velocity'] = tmp_df['velocity'].astype(int)
@@ -639,7 +620,7 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   tmp_df['track_msg_num'] = tmp_df['track_msg_num'].astype('string')
 
 
-  # drop other columns we don't need
+  # optionally drop other columns we don't need
   """tmp_df.drop(columns=[ 'msg_type', 
                         'delta_ticks', 
                         'total_seconds',  
@@ -651,7 +632,6 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
   #### SET REQUIRED INDEXES (MAIN DF)
   
   tmp_df.set_index(['bar_number', 'bar_beat_number', 'note'], inplace=True, drop=False)
-  
   
   #### FILTER ERROR BUCKETS (MAIN DF)
   
@@ -669,25 +649,19 @@ def load_file(file_name, filter_err_buckets=True, note_filter=[44]):
       tmp_df = tmp_df.drop(err_buckets.index).copy() # remove errs
       print('    __ tmp_df after: {}'.format(tmp_df.shape))
       
-
-  
   else:
     print('    > DISABLED - err bucket filtering.')
 
-
-
-  #### GATHER OTHER BITS, BASED ON MAIN DF
+  #### GATHER CONVENIENCE/ MODIFIED DFs, BUILT FROM MAIN DF
   
   stats_df = sf.gather_stats(tmp_df) # parse to gather stats
   tight_df = get_tight_df(tmp_df)
     
-  
   #### STORE CHANGES TO MAIN DF
   
   # replace MIDI_File_Wrapper dataframe with new one...
   f.df_midi_data = tmp_df
  
-  
   ####  RETURN RESULTS
   
   # return all of the finished DataFrame, MIDI_File_Wrapper, 
@@ -725,8 +699,7 @@ def get_error_buckets(midi_file_data):
   return result
   
 '''
-  Collection object to hold in a single place all information
-  related to a performance loaded from a MIDI file.
+  Convenience object, holds all info related to MIDI file.
 
   drummer_id = String
   file_df = complete DataFrame of data, unfiltered
@@ -737,13 +710,11 @@ def get_error_buckets(midi_file_data):
 '''
 PerformanceData = namedtuple('PerformanceData' , 'drummer_id style file_df file_wrapper tools stats_df tight_df tight_style_df')
 
+# specifies file containing list of MIDI data files
 meta_file = '/content/drive/My Drive/LYIT/Dissertation/data/eval_data.csv'
 
 def load_meta_file():
-  '''
-    Loads the files specified in..
-      '/content/drive/My Drive/LYIT/Dissertation/data/eval_data.csv'
-  '''
+  # Loads the file specified in 'meta_file'
 
   eval_df = pd.read_csv(meta_file, dtype = {"drummer": "string", 
                                             "session" : "string", 
@@ -755,17 +726,14 @@ def load_meta_file():
                                             "split" : "string"})
   return eval_df
 
-
+# Refs to 'log_dict', 'all_logs_df' etc. are some utility
+# code for capturing various bits of info for each file.
 
 # INIT - call to reset at start 
 log_dict = {}  # single files' logs 
 all_logs_df = None # holds aggregated logs when load_all_data() is done. 
 
 def get_last_logs():
-  """
-  
-  
-  """
   return all_logs_df
 
 def load_all_data(filter_err_buckets=True):
@@ -780,6 +748,7 @@ def load_all_data(filter_err_buckets=True):
     ['funk/groove1', 'soul/groove3', 'soul/groove4', 'hiphop/groove6', 'rock/groove8']
   """
   
+  # setup some vars for logging info about loaded files
   global all_logs_df
   global log_dict  
   all_logs_df = None
@@ -787,10 +756,9 @@ def load_all_data(filter_err_buckets=True):
   
   eval_df = load_meta_file()
   
-  # NOTE: these are labels for each 'style' (1-10) the drummers
-  # were asked to play, after reviewing, the following were deemed
-  # most suitable/ usable as data for the project
-  song_styles = ['funk/groove1', 'soul/groove3', 'soul/groove4', 'hiphop/groove6', 'rock/groove8']
+  # NOTE: these are the labels deemed usable as data for the project
+  song_styles = ['funk/groove1', 'soul/groove3', 
+    'soul/groove4', 'hiphop/groove6', 'rock/groove8']
   eval_df = eval_df[eval_df['style'].isin(song_styles)]
   
   # container holding all results, used to return
@@ -835,13 +803,8 @@ def load_all_data(filter_err_buckets=True):
 
     # add tuple of data elements to dict with filename as key
     all_drummer_data[long_name] = PerformanceData(next_drummer, 
-                                                  style, 
-                                                  file_df, 
-                                                  file_wrapper, 
-                                                  mtt, 
-                                                  stats_df, 
-                                                  tight_df, 
-                                                  tight_style_df)
+                                                  style, file_df, file_wrapper, mtt, 
+                                                  stats_df, tight_df,  tight_style_df)
 
     # build master_df, a single df of all
     # songs, all styles, all drummers
@@ -880,7 +843,6 @@ def get_tight_df(file_df):
   '''
   
   # filter to core cols
-  #df1 = file_df.filter(items=['note',	'velocity',	'beat_offset', 'beat_offset_ms', 'bar_beat_number'], axis=1).copy()
   df1 = file_df.copy()
   df1 = df1.filter(items=['note',	'velocity',	'beat_offset',  'beat_offset_ms', 'bar_beat_number'], axis=1)
   
@@ -908,7 +870,6 @@ def get_tight_df(file_df):
 def test_function_call(some_param):
   print('Test function in data_prep.py called and worked! when: {},  param:{}'.format(__now(), some_param))
   
-
 
 # debug log that module loaded
 print('>> LOADING custom module, when: {}, module name: {}'.format(__now(), __name__))
